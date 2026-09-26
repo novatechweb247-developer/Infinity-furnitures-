@@ -474,7 +474,7 @@ async function startServer() {
 
   // 8. Media Upload: Direct file upload from device into internal storage bucket
   app.post('/api/upload', (req: Request, res: Response) => {
-    upload.single('file')(req, res, async (err: any) => {
+    (upload.single('file') as any)(req, res, async (err: any) => {
       if (err) {
         console.error('Multer upload error:', err);
         res.status(400).json({ error: err.message || 'File upload failed' });

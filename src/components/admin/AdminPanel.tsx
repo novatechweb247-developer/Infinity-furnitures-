@@ -44,6 +44,7 @@ interface AdminPanelProps {
 
 export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
   const {
+    draftContent,
     hasDraftChanges,
     isSaving,
     isPublishing,
