@@ -269,36 +269,47 @@ function loadContentStore(): CMSStore {
 
 function saveContentStore(store: CMSStore) {
   memoryContentStore = store;
+  console.log('[CMS Save] Saving content store version:', store.published.version);
   // 1. Try writing to primary storage location
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
-  } catch (err) {
-    // Read-only filesystem notice
+    console.log('[CMS Save] Successfully wrote to primary CONTENT_FILE:', CONTENT_FILE);
+  } catch (err: any) {
+    console.warn('[CMS Save] Notice writing primary CONTENT_FILE:', err.message);
   }
 
   // 2. Always write to /tmp fallback location
   try {
     if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
     fs.writeFileSync(TMP_CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
-  } catch (err) {
-    // /tmp write notice
+    console.log('[CMS Save] Successfully wrote to TMP_CONTENT_FILE:', TMP_CONTENT_FILE);
+  } catch (err: any) {
+    console.warn('[CMS Save] Notice writing TMP_CONTENT_FILE:', err.message);
   }
 
   // 3. Sync to Supabase Storage Bucket asynchronously for cross-domain persistence
   if (supabaseClient) {
     try {
       const jsonBuffer = Buffer.from(JSON.stringify(store, null, 2), 'utf-8');
+      console.log('[Supabase Sync] Initiating upload to bucket:', SUPABASE_BUCKET);
       supabaseClient.storage
         .from(SUPABASE_BUCKET)
         .upload('_cms_database/content_store.json', jsonBuffer, {
           contentType: 'application/json',
           upsert: true,
         })
-        .then(() => console.log('[Supabase Sync] CMS Content synced to bucket'))
-        .catch((e: any) => console.warn('[Supabase Sync] Error syncing to bucket:', e.message));
+        .then(({ data, error }: { data: any; error: any }) => {
+          if (error) {
+            console.warn('[Supabase Storage Sync] Upload error response:', error.message);
+          } else {
+            console.log('[Supabase Storage Sync] Success response data:', data);
+          }
+        })
+        .catch((e: any) => console.warn('[Supabase Storage Sync] Exception caught:', e.message));
 
       // Also upsert into cms_content table if it exists
+      console.log('[Supabase DB] Initiating table upsert on "cms_content"');
       supabaseClient
         .from('cms_content')
         .upsert({
@@ -308,10 +319,19 @@ function saveContentStore(store: CMSStore) {
           version: store.published.version || 1,
           last_updated: store.published.lastUpdated || new Date().toISOString(),
         })
-        .catch(() => {});
+        .then(({ data, error }: { data: any; error: any }) => {
+          if (error) {
+            console.warn('[Supabase DB Table] Upsert table warning (table may not exist yet):', error.message);
+          } else {
+            console.log('[Supabase DB Table] Upsert success response:', data);
+          }
+        })
+        .catch((e: any) => console.warn('[Supabase DB Table] Upsert exception:', e.message));
     } catch (e: any) {
-      console.warn('[Supabase Sync] Exception:', e.message);
+      console.warn('[Supabase Sync] Outer Exception:', e.message);
     }
+  } else {
+    console.log('[Supabase Sync] Skipped: supabaseClient not initialized (missing credentials).');
   }
 }
 
@@ -701,25 +721,34 @@ bindRoute('post', ['/api/cms/content/draft', '/api/content/draft', '/draft'], as
 // 4. Content: Publish Draft Live
 bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish'], async (req: Request, res: Response) => {
   try {
+    console.log('[API Publish] Received request to publish draft. Content-Type:', req.headers['content-type']);
     let payload = req.body;
     if (Buffer.isBuffer(payload)) {
       try {
         payload = JSON.parse(payload.toString('utf-8'));
-      } catch {}
+        console.log('[API Publish] Parsed Buffer payload successfully.');
+      } catch (e: any) {
+        console.warn('[API Publish] Buffer parse warning:', e.message);
+      }
     } else if (typeof payload === 'string') {
       try {
         payload = JSON.parse(payload);
-      } catch {}
+        console.log('[API Publish] Parsed String payload successfully.');
+      } catch (e: any) {
+        console.warn('[API Publish] String parse warning:', e.message);
+      }
     }
 
     const store = loadContentStore();
     let incomingDraft = payload?.draft || (payload?.brand ? payload : store.draft);
+    console.log('[API Publish] Incoming draft parsed, version:', incomingDraft?.version);
 
     // Sanitize any embedded base64 safely
     try {
       incomingDraft = await processAndExtractBase64Images(incomingDraft);
-    } catch (sanitizeErr) {
-      console.warn('Base64 processing warning during publish:', sanitizeErr);
+      console.log('[API Publish] Base64 image extraction completed successfully.');
+    } catch (sanitizeErr: any) {
+      console.warn('[API Publish] Base64 processing warning during publish:', sanitizeErr.message);
     }
 
     const nextVersion = (store.published.version || 1) + 1;
@@ -733,6 +762,7 @@ bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish
     store.draft = JSON.parse(JSON.stringify(publishedPayload));
     saveContentStore(store);
 
+    console.log('[API Publish] Successfully published version:', nextVersion);
     res.json({
       success: true,
       message: 'Draft published live to all visitors',
