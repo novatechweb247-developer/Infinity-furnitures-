@@ -936,6 +936,28 @@ bindRoute('delete', ['/api/enquiries/:id', '/enquiries/:id'], (req: Request, res
   }
 });
 
+// 12. Diagnostics: Runtime environment & domain consistency logging
+bindRoute('get', ['/api/diagnostics', '/diagnostics'], (req: Request, res: Response) => {
+  setNoCacheHeaders(res);
+  const host = req.headers.host || '';
+  const isCustomDomain = host && !host.includes('vercel.app') && !host.includes('localhost');
+  res.json({
+    success: true,
+    timestamp: new Date().toISOString(),
+    host,
+    domainType: isCustomDomain ? 'Custom Domain' : 'Default Vercel / Development Domain',
+    vercelEnv: process.env.VERCEL_ENV || 'development',
+    vercelUrl: process.env.VERCEL_URL || '',
+    gitCommitSha: process.env.VERCEL_GIT_COMMIT_SHA || 'local',
+    gitBranch: process.env.VERCEL_GIT_COMMIT_REF || 'main',
+    supabaseUrlConfigured: Boolean(SUPABASE_URL),
+    supabaseProjectId: SUPABASE_URL ? SUPABASE_URL.split('//')[1]?.split('.')[0] || 'unknown' : 'none',
+    supabaseStorageBucket: SUPABASE_BUCKET,
+    canonicalDomainConfigured: CANONICAL_DOMAIN,
+    redirectStatus: 'Active permanent 308 redirect from non-canonical hosts to canonical domain',
+  });
+});
+
 // ----------------------------------------------------
 // VITE MIDDLEWARE / PRODUCTION STATIC SERVING
 // ----------------------------------------------------
