@@ -88,10 +88,10 @@ export function AdminDashboard({ onSelectTab, onNavigate, onPreviewSite }: Admin
             </div>
             <div>
               <h4 className="text-xs uppercase tracking-wider font-semibold text-amber-900">
-                You have unpublished draft edits
+                You have unpublished website changes
               </h4>
               <p className="text-xs text-amber-800 font-light">
-                Changes have been saved to your working draft. Click "Publish Live" in the top bar whenever you are ready for visitors to see them.
+                Changes are currently active in your editing session. Click "Publish Live" in the top bar to save and apply them live to all visitors.
               </p>
             </div>
           </div>

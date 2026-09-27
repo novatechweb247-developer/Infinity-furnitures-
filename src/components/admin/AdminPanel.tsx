@@ -45,9 +45,7 @@ export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
   const {
     draftContent,
     hasDraftChanges,
-    isSaving,
     isPublishing,
-    saveDraft,
     publishDraft,
     discardDraft,
     enquiries,
@@ -78,13 +76,6 @@ export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
   const showToast = (msg: string) => {
     setLocalToastMessage(msg);
     setTimeout(() => setLocalToastMessage(null), 3500);
-  };
-
-  const handleSave = async () => {
-    const ok = await saveDraft();
-    if (ok) {
-      showToast('Draft successfully saved.');
-    }
   };
 
   const handlePublish = async () => {
@@ -207,16 +198,6 @@ export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
               <span>Discard Draft</span>
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-neutral-300 hover:bg-neutral-50 text-[#1a1a1a] text-xs font-medium shadow-xs cursor-pointer transition-colors disabled:opacity-50"
-          >
-            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#b89753]" /> : <Save className="w-3.5 h-3.5 text-[#b89753]" />}
-            <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
-          </button>
 
           <button
             type="button"
