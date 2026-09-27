@@ -502,8 +502,46 @@ const upload = multer({
 });
 
 export const app = express();
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Middleware: URL & Path Resolver for Vercel Serverless Function rewrites & Proxies
+app.use((req: any, res: any, next: any) => {
+  // 1. Check Vercel rewrite / proxy path headers
+  const matchedPath =
+    req.headers['x-matched-path'] ||
+    req.headers['x-vercel-matched-path'] ||
+    req.headers['x-forwarded-uri'] ||
+    req.headers['x-now-route-matches'];
+
+  if (typeof matchedPath === 'string' && (matchedPath.startsWith('/api') || matchedPath.startsWith('/uploads'))) {
+    req.url = matchedPath;
+  } else if (req.query && typeof req.query['0'] === 'string') {
+    const sub = req.query['0'].startsWith('/') ? req.query['0'] : `/${req.query['0']}`;
+    req.url = `/api${sub}`;
+  } else if (req.originalUrl && req.originalUrl.startsWith('/api')) {
+    req.url = req.originalUrl;
+  }
+  next();
+});
+
+// Middleware: Safe body parser handling for both standalone and pre-parsed Vercel serverless functions
+app.use((req: any, res: any, next: any) => {
+  // If req.body is already parsed (e.g. by Vercel Node runtime wrapper)
+  if (req.body !== undefined && typeof req.body === 'object' && req.body !== null) {
+    return next();
+  }
+  if (typeof req.body === 'string' && req.body.length > 0) {
+    try {
+      req.body = JSON.parse(req.body);
+      return next();
+    } catch {}
+  }
+  express.json({ limit: '50mb' })(req, res, (err) => {
+    if (err) {
+      console.warn('JSON parsing notice:', err.message);
+    }
+    express.urlencoded({ extended: true, limit: '50mb' })(req, res, () => next());
+  });
+});
 
 // Static uploads serving from both primary and fallback locations
 app.use('/uploads', express.static(UPLOADS_DIR));
@@ -517,21 +555,29 @@ export const setNoCacheHeaders = (res: Response) => {
   res.setHeader('Surrogate-Control', 'no-store');
 };
 
-// Initialize data on boot
-loadContentStore();
-loadMediaStore();
-loadEnquiriesStore();
+// Initialize data on boot safely
+try {
+  loadContentStore();
+  loadMediaStore();
+  loadEnquiriesStore();
+} catch (e) {
+  console.warn('Initial store load notice:', e);
+}
 
 // ----------------------------------------------------
 // DUAL-PATH API ROUTES HELPER
-// Supports both /api/* and /* so proxy / Vercel rewrites work seamlessly
+// Supports /api/*, /*, and query paths so proxy / Vercel rewrites work seamlessly
 // ----------------------------------------------------
 const bindRoute = (method: 'get' | 'post' | 'delete' | 'patch', paths: string[], handler: any) => {
   const allPaths = new Set<string>();
   paths.forEach((p) => {
     allPaths.add(p);
-    if (p.startsWith('/api/')) allPaths.add(p.replace('/api/', '/'));
-    else if (p.startsWith('/')) allPaths.add('/api' + p);
+    if (p.startsWith('/api/')) {
+      allPaths.add(p.replace('/api/', '/'));
+      allPaths.add(p.replace('/api/', ''));
+    } else if (p.startsWith('/')) {
+      allPaths.add('/api' + p);
+    }
   });
   app[method](Array.from(allPaths), handler);
 };
