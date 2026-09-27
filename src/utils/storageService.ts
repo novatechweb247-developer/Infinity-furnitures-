@@ -1,13 +1,10 @@
-import { get, set, del } from 'idb-keyval';
-import { CMSContent, MediaAsset } from '../types';
+import { get, set } from 'idb-keyval';
+import { CMSContent } from '../types';
 
 export const LOCAL_STORAGE_KEY_PUBLISHED = 'infinity_cms_published';
 export const LOCAL_STORAGE_KEY_DRAFT = 'infinity_cms_draft';
-export const LOCAL_STORAGE_KEY_MEDIA = 'infinity_media_library';
 export const LOCAL_STORAGE_KEY_ENQUIRIES = 'infinity_enquiries';
 export const LOCAL_STORAGE_KEY_ENQUIRY_LOGS = 'infinity_enquiry_events';
-
-const FALLBACK_IMAGE_URL = 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=2000&q=85';
 
 /**
  * Checks whether a given string is a raw data URI or base64 payload.
@@ -18,7 +15,7 @@ export function isBase64DataUri(val: any): boolean {
 }
 
 /**
- * Uploads a base64 Data URI to the server storage bucket so it becomes a permanent /uploads/... URL.
+ * Uploads a base64 Data URI directly to the server / Supabase storage bucket so it becomes a permanent storage URL.
  */
 export async function uploadBase64ToServer(dataUri: string, name = 'uploaded_asset', category = 'Uploads'): Promise<string | null> {
   try {
@@ -32,14 +29,13 @@ export async function uploadBase64ToServer(dataUri: string, name = 'uploaded_ass
       if (data.url) return data.url;
     }
   } catch (e) {
-    console.warn('Could not upload base64 to server bucket:', e);
+    console.warn('Could not upload base64 to server/storage bucket:', e);
   }
   return null;
 }
 
 /**
- * Recursively converts any embedded base64 images in a CMSContent object into permanent server /uploads/... URLs.
- * If server is unreachable, strips the raw base64 and replaces it with a clean fallback URL so localStorage quota is never exhausted.
+ * Recursively converts any embedded base64 images in a CMSContent object into permanent storage URLs.
  */
 export async function sanitizeAndConvertBase64Images(content: CMSContent): Promise<CMSContent> {
   const clone: CMSContent = JSON.parse(JSON.stringify(content));
@@ -49,12 +45,10 @@ export async function sanitizeAndConvertBase64Images(content: CMSContent): Promi
 
     if (typeof node === 'string') {
       if (isBase64DataUri(node)) {
-        // Attempt to upload to server to get permanent URL
         const uploadedUrl = await uploadBase64ToServer(node, 'cms_asset');
         if (uploadedUrl) {
           return uploadedUrl;
         }
-        // If server upload endpoint is temporarily unreachable, preserve the data URI so user image is never lost
         return node;
       }
       return node;
@@ -83,7 +77,7 @@ export async function sanitizeAndConvertBase64Images(content: CMSContent): Promi
 }
 
 /**
- * Strips raw binary buffers if present, while preserving all image URLs and base64 Data URIs intact.
+ * Strips raw binary buffers if present, while preserving all image URLs.
  */
 export function stripBase64Sync<T>(obj: T): T {
   if (!obj) return obj;
@@ -96,7 +90,6 @@ export function stripBase64Sync<T>(obj: T): T {
   if (typeof obj === 'object') {
     const result: any = {};
     for (const key of Object.keys(obj as any)) {
-      // Omit oversized raw binary properties if any exist
       if (key === 'rawFile' || key === 'buffer' || key === '_previewBlob') continue;
       result[key] = stripBase64Sync((obj as any)[key]);
     }
@@ -147,7 +140,6 @@ export function optimizeCMSPayload(content: CMSContent): CMSContent {
 
 /**
  * Safely writes a key-value string to localStorage with automatic QuotaExceeded error recovery.
- * If quota is exceeded, prunes transient cache/history entries and retries.
  */
 export function safeSetLocalStorage(key: string, rawString: string): boolean {
   try {
@@ -166,12 +158,8 @@ export function safeSetLocalStorage(key: string, rawString: string): boolean {
     if (isQuotaError) {
       console.warn(`[safeSetLocalStorage] QuotaExceededError encountered on "${key}". Pruning non-essential storage...`);
       try {
-        // 1. Prune temporary enquiry logs
         localStorage.removeItem(LOCAL_STORAGE_KEY_ENQUIRY_LOGS);
-
-        // 2. Retry setting the item
         localStorage.setItem(key, rawString);
-        console.info(`[safeSetLocalStorage] Successfully stored "${key}" after pruning non-essential caches.`);
         return true;
       } catch (retryErr) {
         console.warn(`[safeSetLocalStorage] Storage still full after pruning. IndexedDB holds authoritative master.`, retryErr);
@@ -185,14 +173,13 @@ export function safeSetLocalStorage(key: string, rawString: string): boolean {
 }
 
 /**
- * Migrates legacy storage keys to current keys without modifying or deleting media.
+ * Migrates legacy storage keys to current keys.
  */
 export function cleanLegacyLocalStorage(): void {
   try {
     const legacyKeysMap: [string, string][] = [
       ['infinity_cms_published_v2', LOCAL_STORAGE_KEY_PUBLISHED],
       ['infinity_cms_draft_v2', LOCAL_STORAGE_KEY_DRAFT],
-      ['infinity_media_assets_v2', LOCAL_STORAGE_KEY_MEDIA],
       ['infinity_enquiries_v2', LOCAL_STORAGE_KEY_ENQUIRIES],
     ];
 
@@ -212,20 +199,15 @@ export function cleanLegacyLocalStorage(): void {
  * and safely mirrors lightweight sanitized text metadata into localStorage.
  */
 export async function persistPublishedContent(content: CMSContent): Promise<CMSContent> {
-  // 1. Upload any base64 images to server first to obtain clean permanent URLs
   const urlSanitized = await sanitizeAndConvertBase64Images(content);
-
-  // 2. Optimize payload into strictly lightweight text metadata and URL references
   const optimized = optimizeCMSPayload(urlSanitized);
 
-  // 3. Primary driver: Store in IndexedDB (supports 100s of megabytes)
   try {
     await set(LOCAL_STORAGE_KEY_PUBLISHED, optimized);
   } catch (idbErr) {
     console.warn('[persistPublishedContent] IndexedDB write notice:', idbErr);
   }
 
-  // 4. Secondary driver: Store sanitized JSON in localStorage wrapped in try/catch with quota handling
   const jsonString = JSON.stringify(optimized);
   safeSetLocalStorage(LOCAL_STORAGE_KEY_PUBLISHED, jsonString);
 
@@ -237,20 +219,15 @@ export async function persistPublishedContent(content: CMSContent): Promise<CMSC
  * and mirrors lightweight sanitized metadata into localStorage.
  */
 export async function persistDraftContent(content: CMSContent): Promise<CMSContent> {
-  // 1. Convert any base64 images to server URLs if possible
   const urlSanitized = await sanitizeAndConvertBase64Images(content);
-
-  // 2. Optimize payload
   const optimized = optimizeCMSPayload(urlSanitized);
 
-  // 3. Primary driver: IndexedDB
   try {
     await set(LOCAL_STORAGE_KEY_DRAFT, optimized);
   } catch (idbErr) {
     console.warn('[persistDraftContent] IndexedDB write notice:', idbErr);
   }
 
-  // 4. Secondary driver: localStorage
   safeSetLocalStorage(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(optimized));
 
   return optimized;
@@ -305,21 +282,4 @@ export async function loadDraftFromStorage(): Promise<CMSContent | null> {
   }
 
   return null;
-}
-
-/**
- * Persists media assets safely in IndexedDB and lightweight list in localStorage.
- */
-export async function persistMediaAssets(assets: MediaAsset[]): Promise<void> {
-  try {
-    await set(LOCAL_STORAGE_KEY_MEDIA, assets);
-  } catch (e) {
-    console.warn('[persistMediaAssets] IndexedDB error:', e);
-  }
-
-  // Keep strictly URL-based lightweight assets in localStorage
-  const cleanList = assets
-    .filter((a) => !isBase64DataUri(a.url))
-    .slice(0, 50); // Keep at most 50 recent items in localStorage cache
-  safeSetLocalStorage(LOCAL_STORAGE_KEY_MEDIA, JSON.stringify(cleanList));
 }

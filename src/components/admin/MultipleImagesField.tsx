@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useCMS } from '../../context/CMSContext';
-import { MediaLibraryModal } from './MediaLibraryModal';
-import { Upload, FolderOpen, Trash2, Star, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Upload, Trash2, Star, ChevronLeft, ChevronRight, Plus, Link2, Loader2 } from 'lucide-react';
 
 interface MultipleImagesFieldProps {
   label: string;
@@ -19,8 +18,9 @@ export function MultipleImagesField({
   category = 'Products',
 }: MultipleImagesFieldProps) {
   const { uploadFile } = useCMS();
-  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [customUrl, setCustomUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBatchUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,11 +45,16 @@ export function MultipleImagesField({
     }
   };
 
-  const handleSelectFromLibrary = (url: string) => {
-    if (!url) return;
-    const cleanOld = images.filter((img) => img !== url);
-    const updated = [url, ...cleanOld];
-    onChange(updated, url);
+  const handleAddUrl = () => {
+    if (customUrl.trim()) {
+      const url = customUrl.trim();
+      const cleanOld = images.filter((img) => img !== url);
+      const updated = [...cleanOld, url];
+      const newPrimary = primaryImage || url;
+      onChange(updated, newPrimary);
+      setCustomUrl('');
+      setShowUrlInput(false);
+    }
   };
 
   const handleRemove = (index: number) => {
@@ -87,7 +92,7 @@ export function MultipleImagesField({
             {label}
           </label>
           <span className="text-[11px] text-neutral-500">
-            Click Star to set primary cover photo. Reorder with arrows.
+            Upload multiple photos directly. Click Star to set primary cover photo. Reorder with arrows.
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -105,19 +110,38 @@ export function MultipleImagesField({
             disabled={isUploading}
             className="inline-flex items-center gap-1.5 bg-[#b89753] hover:bg-[#a38442] text-white px-3.5 py-1.5 rounded-full text-[11px] font-medium uppercase tracking-[0.1em] shadow-xs transition-all cursor-pointer disabled:opacity-50"
           >
-            <Upload className="w-3 h-3" />
-            <span>{isUploading ? 'Uploading...' : 'Upload Files'}</span>
+            {isUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+            <span>{isUploading ? 'Uploading...' : 'Direct Upload'}</span>
           </button>
           <button
             type="button"
-            onClick={() => setIsMediaModalOpen(true)}
+            onClick={() => setShowUrlInput(!showUrlInput)}
             className="inline-flex items-center gap-1.5 bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-300 px-3.5 py-1.5 rounded-full text-[11px] font-medium uppercase tracking-[0.1em] shadow-xs transition-all cursor-pointer"
           >
-            <FolderOpen className="w-3 h-3 text-[#b89753]" />
-            <span>From Library</span>
+            <Link2 className="w-3 h-3 text-[#b89753]" />
+            <span>Add URL</span>
           </button>
         </div>
       </div>
+
+      {showUrlInput && (
+        <div className="flex items-center gap-2 p-3 bg-neutral-50 border border-neutral-200 rounded-xl">
+          <input
+            type="url"
+            value={customUrl}
+            onChange={(e) => setCustomUrl(e.target.value)}
+            placeholder="Enter image URL..."
+            className="flex-1 bg-white border border-neutral-300 rounded-lg px-3 py-1.5 text-xs text-neutral-800 focus:outline-none focus:border-[#b89753]"
+          />
+          <button
+            type="button"
+            onClick={handleAddUrl}
+            className="bg-[#1a1a1a] text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-neutral-800 cursor-pointer"
+          >
+            Add Image
+          </button>
+        </div>
+      )}
 
       {images.length === 0 ? (
         <div
@@ -129,7 +153,7 @@ export function MultipleImagesField({
           </div>
           <p className="text-xs text-neutral-700 font-semibold uppercase tracking-wider">No images selected yet</p>
           <p className="text-[11px] text-neutral-500 mt-1">
-            Drag and drop multi-angle photographs here or click to browse files
+            Drag and drop multi-angle photographs here or click to browse files from device
           </p>
         </div>
       ) : (
@@ -153,14 +177,14 @@ export function MultipleImagesField({
                     </div>
                   )}
 
-                  {/* Explicit Top Right Delete Button (Always Visible & Prominent on Hover) */}
+                  {/* Explicit Top Right Delete Button */}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleRemove(idx);
                     }}
-                    title="Remove / Delete Image"
+                    title="Remove Image"
                     className="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center shadow-md transition-all cursor-pointer hover:scale-110 z-10"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -222,13 +246,6 @@ export function MultipleImagesField({
           </button>
         </div>
       )}
-
-      <MediaLibraryModal
-        isOpen={isMediaModalOpen}
-        onClose={() => setIsMediaModalOpen(false)}
-        onSelect={handleSelectFromLibrary}
-        title="Select Product Image from Library"
-      />
     </div>
   );
 }

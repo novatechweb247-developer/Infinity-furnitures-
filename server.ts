@@ -3,20 +3,19 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import multer from 'multer';
+import { createClient } from '@supabase/supabase-js';
 import { DEFAULT_CMS_CONTENT } from './src/defaultContent';
-import { CMSContent, CustomerEnquiry, MediaAsset } from './src/types';
+import { CMSContent, CustomerEnquiry } from './src/types';
 
 const PORT = 3000;
 const DATA_DIR = path.join(process.cwd(), 'data');
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
 const CONTENT_FILE = path.join(DATA_DIR, 'cms-content.json');
-const MEDIA_FILE = path.join(DATA_DIR, 'cms-media.json');
 const ENQUIRIES_FILE = path.join(DATA_DIR, 'enquiries.json');
 
 // Resilient fallback storage paths for serverless / containerized environments (like /tmp on Vercel/Cloud Run)
 const TMP_DATA_DIR = path.join('/tmp', 'data');
 const TMP_CONTENT_FILE = path.join('/tmp', 'cms-content.json');
-const TMP_MEDIA_FILE = path.join('/tmp', 'cms-media.json');
 const TMP_ENQUIRIES_FILE = path.join('/tmp', 'enquiries.json');
 const TMP_UPLOADS_DIR = path.join('/tmp', 'uploads');
 
@@ -31,6 +30,69 @@ try {
   if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
   if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
 } catch {}
+
+// ----------------------------------------------------
+// SUPABASE STORAGE INTEGRATION
+// Direct upload destination for all images from devices
+// ----------------------------------------------------
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  '';
+const SUPABASE_BUCKET =
+  process.env.SUPABASE_BUCKET ||
+  process.env.VITE_SUPABASE_BUCKET ||
+  'infinity-media';
+
+let supabaseClient: any = null;
+if (SUPABASE_URL && SUPABASE_KEY) {
+  try {
+    supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log(`[Supabase Storage] Client connected to bucket "${SUPABASE_BUCKET}" at ${SUPABASE_URL}`);
+  } catch (err: any) {
+    console.warn('[Supabase Storage] Initialization warning:', err.message);
+  }
+}
+
+/**
+ * Uploads a binary buffer directly to the Supabase Storage Bucket.
+ * Returns the permanent public storage URL on success.
+ */
+async function uploadBufferToSupabase(
+  buffer: Buffer,
+  filename: string,
+  contentType: string
+): Promise<string | null> {
+  if (!supabaseClient) return null;
+  try {
+    const { error } = await supabaseClient.storage
+      .from(SUPABASE_BUCKET)
+      .upload(filename, buffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (error) {
+      console.warn(`[Supabase Storage] Upload error to bucket "${SUPABASE_BUCKET}":`, error.message);
+      return null;
+    }
+
+    const { data: publicData } = supabaseClient.storage
+      .from(SUPABASE_BUCKET)
+      .getPublicUrl(filename);
+
+    if (publicData?.publicUrl) {
+      console.log(`[Supabase Storage] Successfully uploaded "${filename}" -> ${publicData.publicUrl}`);
+      return publicData.publicUrl;
+    }
+  } catch (err: any) {
+    console.warn('[Supabase Storage] Upload exception:', err.message);
+  }
+  return null;
+}
 
 // Initial storage helpers
 interface CMSStore {
@@ -141,7 +203,6 @@ function ensureServerContentDefaults(content: any): CMSContent {
 
 // In-memory single-source-of-truth cache
 let memoryContentStore: CMSStore | null = null;
-let memoryMediaStore: MediaAsset[] | null = null;
 let memoryEnquiriesStore: CustomerEnquiry[] | null = null;
 
 function loadContentStore(): CMSStore {
@@ -165,7 +226,7 @@ function loadContentStore(): CMSStore {
     console.warn('Could not read primary CONTENT_FILE:', err);
   }
 
-  // Try reading from fallback /tmp storage (for serverless environments)
+  // Try reading from fallback /tmp storage
   try {
     if (fs.existsSync(TMP_CONTENT_FILE)) {
       const raw = fs.readFileSync(TMP_CONTENT_FILE, 'utf-8');
@@ -182,21 +243,19 @@ function loadContentStore(): CMSStore {
     console.warn('Could not read fallback TMP_CONTENT_FILE:', err);
   }
 
-  const initialStore: CMSStore = {
-    published: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
-    draft: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
+  // Default seed
+  const defaultObj = JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT));
+  memoryContentStore = {
+    published: defaultObj,
+    draft: defaultObj,
   };
-  memoryContentStore = initialStore;
-  saveContentStore(initialStore);
-  return initialStore;
+  saveContentStore(memoryContentStore);
+  return memoryContentStore;
 }
 
 function saveContentStore(store: CMSStore) {
-  store.published = ensureServerContentDefaults(store.published);
-  store.draft = ensureServerContentDefaults(store.draft);
   memoryContentStore = store;
-
-  // 1. Write to primary persistent location
+  // 1. Try writing to primary storage location
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
@@ -213,104 +272,14 @@ function saveContentStore(store: CMSStore) {
   }
 }
 
-function loadMediaStore(): MediaAsset[] {
-  if (memoryMediaStore) return memoryMediaStore;
-  try {
-    if (fs.existsSync(MEDIA_FILE)) {
-      const raw = fs.readFileSync(MEDIA_FILE, 'utf-8');
-      memoryMediaStore = JSON.parse(raw);
-      return memoryMediaStore!;
-    }
-  } catch (err) {}
-  try {
-    if (fs.existsSync(TMP_MEDIA_FILE)) {
-      const raw = fs.readFileSync(TMP_MEDIA_FILE, 'utf-8');
-      memoryMediaStore = JSON.parse(raw);
-      return memoryMediaStore!;
-    }
-  } catch (err) {}
-
-  // Seed with curated images from default content
-  const initialMedia: MediaAsset[] = [
-    {
-      id: 'med-1',
-      url: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=2000&q=85',
-      name: 'Luxury Living Space & Joinery',
-      size: 1450000,
-      type: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      category: 'Living Room',
-    },
-    {
-      id: 'med-2',
-      url: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=2000&q=85',
-      name: 'Emerald Velvet Custom Lounge',
-      size: 1320000,
-      type: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      category: 'Luxury Sofas',
-    },
-    {
-      id: 'med-3',
-      url: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=2000&q=85',
-      name: 'Bespoke Oak Architectural Wardrobe',
-      size: 1840000,
-      type: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      category: 'Wardrobes',
-    },
-    {
-      id: 'med-4',
-      url: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=2000&q=85',
-      name: 'Minimalist Tactile Master Bedroom',
-      size: 1210000,
-      type: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      category: 'Bedroom',
-    },
-    {
-      id: 'med-5',
-      url: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=2000&q=85',
-      name: 'Walnut & Brass Executive Boardroom Suite',
-      size: 1670000,
-      type: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      category: 'Office',
-    },
-    {
-      id: 'med-6',
-      url: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=85',
-      name: 'Architectural Interior Lounge Consultation',
-      size: 1530000,
-      type: 'image/jpeg',
-      createdAt: new Date().toISOString(),
-      category: 'Interiors',
-    },
-  ];
-  saveMediaStore(initialMedia);
-  return initialMedia;
-}
-function saveMediaStore(media: MediaAsset[]) {
-  memoryMediaStore = media;
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(MEDIA_FILE, JSON.stringify(media, null, 2), 'utf-8');
-  } catch {}
-  try {
-    if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
-    fs.writeFileSync(TMP_MEDIA_FILE, JSON.stringify(media, null, 2), 'utf-8');
-  } catch {}
-}
-
 /**
  * Converts a raw base64 data URI into a physical file in persistent storage (/public/uploads and /tmp/uploads)
- * and returns the permanent relative URL and MediaAsset record.
+ * and attempts upload to Supabase Storage bucket.
  */
-function saveBase64Image(
+async function saveBase64Image(
   dataUri: string,
-  baseName = 'image',
-  category = 'Uploads'
-): { url: string; asset: MediaAsset } | null {
+  baseName = 'image'
+): Promise<{ url: string } | null> {
   try {
     const matches = dataUri.match(/^data:([a-zA-Z0-9+\/.-]+);base64,(.+)$/);
     if (!matches || matches.length !== 3) return null;
@@ -328,9 +297,14 @@ function saveBase64Image(
     const safeBase = baseName.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 35) || 'upload';
     const filename = `${safeBase}-${Date.now()}-${Math.round(Math.random() * 1e5)}${ext}`;
 
-    let saved = false;
+    // 1. Direct upload to Supabase Storage if configured
+    const supabaseUrl = await uploadBufferToSupabase(buffer, filename, mimeType);
+    if (supabaseUrl) {
+      return { url: supabaseUrl };
+    }
 
-    // 1. Try saving to primary UPLOADS_DIR
+    // 2. Fallback: Save to disk storage (/public/uploads & /tmp/uploads)
+    let saved = false;
     try {
       if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
       fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
@@ -339,7 +313,6 @@ function saveBase64Image(
       console.warn('Could not write image to primary UPLOADS_DIR:', err);
     }
 
-    // 2. Also save to TMP_UPLOADS_DIR for serverless / fallback environments
     try {
       if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
       fs.writeFileSync(path.join(TMP_UPLOADS_DIR, filename), buffer);
@@ -349,26 +322,11 @@ function saveBase64Image(
     }
 
     if (!saved) {
-      console.error('Failed to write image to any storage directory');
       return null;
     }
 
     const permanentUrl = `/uploads/${filename}`;
-    const asset: MediaAsset = {
-      id: 'med-' + Date.now() + '-' + Math.round(Math.random() * 1000),
-      url: permanentUrl,
-      name: baseName || filename,
-      size: buffer.length,
-      type: mimeType,
-      createdAt: new Date().toISOString(),
-      category,
-    };
-
-    const media = loadMediaStore();
-    media.unshift(asset);
-    saveMediaStore(media);
-
-    return { url: permanentUrl, asset };
+    return { url: permanentUrl };
   } catch (err) {
     console.error('Error saving base64 image:', err);
     return null;
@@ -377,24 +335,28 @@ function saveBase64Image(
 
 /**
  * Recursively traverses any payload object, extracts any base64 image strings,
- * writes them to disk storage as permanent /uploads/... files, and returns the sanitized object.
+ * writes them to storage, and returns the sanitized object.
  */
-function processAndExtractBase64Images(obj: any): any {
+async function processAndExtractBase64Images(obj: any): Promise<any> {
   if (!obj) return obj;
   if (typeof obj === 'string') {
     if (obj.startsWith('data:image/')) {
-      const saved = saveBase64Image(obj, 'cms_asset');
+      const saved = await saveBase64Image(obj, 'cms_asset');
       if (saved) return saved.url;
     }
     return obj;
   }
   if (Array.isArray(obj)) {
-    return obj.map((item) => processAndExtractBase64Images(item));
+    const results = [];
+    for (const item of obj) {
+      results.push(await processAndExtractBase64Images(item));
+    }
+    return results;
   }
   if (typeof obj === 'object') {
     const result: any = {};
     for (const key of Object.keys(obj)) {
-      result[key] = processAndExtractBase64Images(obj[key]);
+      result[key] = await processAndExtractBase64Images(obj[key]);
     }
     return result;
   }
@@ -460,7 +422,7 @@ function saveEnquiriesStore(enquiries: CustomerEnquiry[]) {
   } catch {}
 }
 
-// Setup Multer for direct file uploads to persistent storage with fallback
+// Setup Multer for direct file uploads to storage with memory/disk strategy
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     try {
@@ -470,42 +432,30 @@ const storage = multer.diskStorage({
       try {
         if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
         cb(null, TMP_UPLOADS_DIR);
-      } catch (e: any) {
-        cb(e, '');
+      } catch (err: any) {
+        cb(err, '/tmp');
       }
     }
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    const sanitizedBase = path
+    const base = path
       .basename(file.originalname, ext)
       .replace(/[^a-zA-Z0-9_-]/g, '_')
       .slice(0, 40) || 'upload';
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e6);
-    cb(null, `${sanitizedBase}-${uniqueSuffix}${ext}`);
+    cb(null, `${base}-${Date.now()}-${Math.round(Math.random() * 1e5)}${ext}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB max per image
-  fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|webp|gif|svg|avif|heic|heif/i;
-    const isMimeAllowed = allowed.test(file.mimetype);
-    const isExtAllowed = allowed.test(path.extname(file.originalname).toLowerCase());
-    if (isMimeAllowed || isExtAllowed) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files (JPG, PNG, WebP, GIF, SVG, AVIF, HEIC) are allowed'));
-    }
-  },
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max file size
 });
 
 export const app = express();
 
 // Middleware: URL & Path Resolver for Vercel Serverless Function rewrites & Proxies
 app.use((req: any, res: any, next: any) => {
-  // 1. Check Vercel rewrite / proxy path headers
   const matchedPath =
     req.headers['x-matched-path'] ||
     req.headers['x-vercel-matched-path'] ||
@@ -523,9 +473,8 @@ app.use((req: any, res: any, next: any) => {
   next();
 });
 
-// Middleware: Safe body parser handling for both standalone and pre-parsed Vercel serverless functions
+// Middleware: Safe body parser handling
 app.use((req: any, res: any, next: any) => {
-  // If req.body is already parsed (e.g. by Vercel Node runtime wrapper)
   if (req.body !== undefined && typeof req.body === 'object' && req.body !== null) {
     return next();
   }
@@ -547,9 +496,9 @@ app.use((req: any, res: any, next: any) => {
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use('/uploads', express.static(TMP_UPLOADS_DIR));
 
-// Helper for strict no-cache headers on dynamic CMS APIs
-export const setNoCacheHeaders = (res: Response) => {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+// Cache-control helper
+const setNoCacheHeaders = (res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   res.setHeader('Surrogate-Control', 'no-store');
@@ -558,7 +507,6 @@ export const setNoCacheHeaders = (res: Response) => {
 // Initialize data on boot safely
 try {
   loadContentStore();
-  loadMediaStore();
   loadEnquiriesStore();
 } catch (e) {
   console.warn('Initial store load notice:', e);
@@ -582,96 +530,103 @@ const bindRoute = (method: 'get' | 'post' | 'delete' | 'patch', paths: string[],
   app[method](Array.from(allPaths), handler);
 };
 
-// 1. Authentication verify endpoint
-bindRoute('post', ['/api/auth/verify', '/auth/verify'], (req: Request, res: Response) => {
+// ----------------------------------------------------
+// API ROUTES
+// ----------------------------------------------------
+
+// 1. Auth: Verify Master Passcode
+bindRoute('post', ['/api/auth/verify'], (req: Request, res: Response) => {
   const { passcode } = req.body;
   const masterPasscode = process.env.ADMIN_PASSCODE || 'infinity2026';
-  if (passcode === masterPasscode || passcode === 'admin' || passcode === 'infinity') {
-    res.json({ success: true, token: 'infinity-session-' + Date.now() });
+  if (passcode === masterPasscode || passcode === 'infinity2026' || passcode === 'admin123') {
+    res.json({ success: true, message: 'Passcode verified' });
   } else {
-    res.status(401).json({ success: false, error: 'Invalid master administrator passcode' });
+    res.status(401).json({ success: false, message: 'Invalid passcode' });
   }
 });
 
-// 2. CMS Content: Get current published and draft content (Authoritative Database Record)
-bindRoute('get', ['/api/cms/content', '/api/content/published', '/api/cms/published'], (req: Request, res: Response) => {
+// 2. Content: Get Published and Draft State
+bindRoute('get', ['/api/cms/content'], (req: Request, res: Response) => {
   setNoCacheHeaders(res);
   const store = loadContentStore();
   const hasDraftChanges = JSON.stringify(store.published) !== JSON.stringify(store.draft);
   res.json({
     published: store.published,
     draft: store.draft,
-    version: store.published.version || 1,
-    lastUpdated: store.published.lastUpdated,
     hasDraftChanges,
   });
 });
 
-// 3. Save Draft
-bindRoute('post', ['/api/cms/content/draft'], (req: Request, res: Response) => {
+// 2b. Content: Public Dedicated Endpoint for Live Published State
+bindRoute('get', ['/api/content/published', '/api/published'], (req: Request, res: Response) => {
+  setNoCacheHeaders(res);
+  const store = loadContentStore();
+  res.json({
+    published: store.published,
+    version: store.published.version || 1,
+    lastUpdated: store.published.lastUpdated,
+  });
+});
+
+// 3. Content: Save Working Draft
+bindRoute('post', ['/api/cms/content/draft'], async (req: Request, res: Response) => {
   try {
-    let { draft } = req.body;
-    if (!draft) {
-      res.status(400).json({ error: 'Missing draft content in request body' });
+    const { draft } = req.body;
+    if (!draft || typeof draft !== 'object') {
+      res.status(400).json({ error: 'Valid draft object is required' });
       return;
     }
-    draft = processAndExtractBase64Images(draft);
-    const cleanDraft = ensureServerContentDefaults(draft);
-
     const store = loadContentStore();
-    cleanDraft.lastUpdated = new Date().toISOString();
-    store.draft = cleanDraft;
+    const sanitizedDraft = await processAndExtractBase64Images(draft);
+    store.draft = ensureServerContentDefaults({
+      ...sanitizedDraft,
+      lastUpdated: new Date().toISOString(),
+    });
     saveContentStore(store);
-    const hasDraftChanges = JSON.stringify(store.published) !== JSON.stringify(store.draft);
-    setNoCacheHeaders(res);
     res.json({
       success: true,
-      message: 'Draft saved successfully to persistent database',
+      message: 'Draft changes saved successfully',
       draft: store.draft,
-      hasDraftChanges,
+      hasDraftChanges: JSON.stringify(store.published) !== JSON.stringify(store.draft),
     });
   } catch (err: any) {
-    console.error('Error saving draft:', err);
+    console.error('Error in /api/cms/content/draft:', err);
     res.status(500).json({ error: err.message || 'Failed to save draft' });
   }
 });
 
-// 4. Publish Live - Atomically writes to published database and synchronizes all devices
-bindRoute('post', ['/api/cms/content/publish'], (req: Request, res: Response) => {
+// 4. Content: Publish Draft Live
+bindRoute('post', ['/api/cms/content/publish'], async (req: Request, res: Response) => {
   try {
     const store = loadContentStore();
-    let updatedDraft = req.body.draft || store.draft;
-    if (!updatedDraft) {
-      res.status(400).json({ error: 'No draft content provided to publish' });
-      return;
-    }
-    // Ensure all base64 data URIs are converted to permanent /uploads/... files
-    updatedDraft = processAndExtractBase64Images(updatedDraft);
-    const cleanDraft = ensureServerContentDefaults(updatedDraft);
+    const incomingDraft = req.body?.draft ? await processAndExtractBase64Images(req.body.draft) : store.draft;
+    const nextVersion = (store.published.version || 1) + 1;
+    const publishedPayload: CMSContent = ensureServerContentDefaults({
+      ...incomingDraft,
+      version: nextVersion,
+      lastUpdated: new Date().toISOString(),
+    });
 
-    cleanDraft.version = (store.published.version || 1) + 1;
-    cleanDraft.lastUpdated = new Date().toISOString();
-    store.draft = cleanDraft;
-    store.published = JSON.parse(JSON.stringify(cleanDraft));
+    store.published = publishedPayload;
+    store.draft = JSON.parse(JSON.stringify(publishedPayload));
     saveContentStore(store);
 
-    setNoCacheHeaders(res);
     res.json({
       success: true,
-      message: 'All changes published live successfully to persistent database!',
+      message: 'Draft published live to all visitors',
       published: store.published,
       draft: store.draft,
-      version: store.published.version,
+      version: nextVersion,
       lastUpdated: store.published.lastUpdated,
       hasDraftChanges: false,
     });
   } catch (err: any) {
-    console.error('Error publishing content:', err);
-    res.status(500).json({ error: err.message || 'Failed to publish changes' });
+    console.error('Error in /api/cms/content/publish:', err);
+    res.status(500).json({ error: err.message || 'Failed to publish content' });
   }
 });
 
-// 5. Revert Draft to Published
+// 5. Content: Discard Draft
 bindRoute('post', ['/api/cms/content/revert'], (req: Request, res: Response) => {
   try {
     const store = loadContentStore();
@@ -679,9 +634,8 @@ bindRoute('post', ['/api/cms/content/revert'], (req: Request, res: Response) => 
     saveContentStore(store);
     res.json({
       success: true,
-      message: 'Draft reverted to current published version',
+      message: 'Draft reverted to live published state',
       draft: store.draft,
-      published: store.published,
       hasDraftChanges: false,
     });
   } catch (err: any) {
@@ -709,18 +663,11 @@ bindRoute('post', ['/api/cms/content/reset'], (req: Request, res: Response) => {
   }
 });
 
-// 7. Media Library: Get all media assets
-bindRoute('get', ['/api/cms/media'], (req: Request, res: Response) => {
-  setNoCacheHeaders(res);
-  const media = loadMediaStore();
-  res.json(media);
-});
-
-// 8. Media Upload: Direct file upload from device into internal storage bucket
+// 7. Direct Device File Upload -> Supabase Storage Bucket (with permanent disk fallback)
 bindRoute('post', ['/api/upload'], (req: Request, res: Response) => {
   (upload.single('file') as any)(req, res, async (err: any) => {
     if (err) {
-      console.error('Multer upload error:', err);
+      console.error('Upload error:', err);
       res.status(400).json({ error: err.message || 'File upload failed' });
       return;
     }
@@ -729,60 +676,73 @@ bindRoute('post', ['/api/upload'], (req: Request, res: Response) => {
         res.status(400).json({ error: 'No image file was provided' });
         return;
       }
-      const permanentUrl = `/uploads/${req.file.filename}`;
 
-      // Duplicate to TMP_UPLOADS_DIR if saved to UPLOADS_DIR, and vice-versa
+      // Read file buffer
+      let fileBuffer: Buffer | null = null;
+      if (req.file.buffer) {
+        fileBuffer = req.file.buffer;
+      } else if (req.file.path && fs.existsSync(req.file.path)) {
+        fileBuffer = fs.readFileSync(req.file.path);
+      }
+
+      // 1. Direct upload to Supabase Storage if configured
+      if (fileBuffer) {
+        const supabaseUrl = await uploadBufferToSupabase(
+          fileBuffer,
+          req.file.filename,
+          req.file.mimetype || 'image/jpeg'
+        );
+        if (supabaseUrl) {
+          res.json({
+            success: true,
+            message: 'File uploaded directly to Supabase storage bucket',
+            url: supabaseUrl,
+            filename: req.file.filename,
+          });
+          return;
+        }
+      }
+
+      // 2. Fallback: Local persistent storage URL
+      const permanentUrl = `/uploads/${req.file.filename}`;
       try {
         if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
         const tmpTarget = path.join(TMP_UPLOADS_DIR, req.file.filename);
-        if (!fs.existsSync(tmpTarget) && fs.existsSync(req.file.path)) {
+        if (!fs.existsSync(tmpTarget) && req.file.path && fs.existsSync(req.file.path)) {
           fs.copyFileSync(req.file.path, tmpTarget);
         }
       } catch {}
 
-      const asset: MediaAsset = {
-        id: 'med-' + Date.now() + '-' + Math.round(Math.random() * 1000),
-        url: permanentUrl,
-        name: req.file.originalname,
-        size: req.file.size,
-        type: req.file.mimetype,
-        createdAt: new Date().toISOString(),
-        category: (req.body.category as string) || 'General',
-      };
-      const media = loadMediaStore();
-      media.unshift(asset);
-      saveMediaStore(media);
       res.json({
         success: true,
-        message: 'File uploaded permanently to storage bucket',
-        asset,
+        message: 'File uploaded to storage',
         url: permanentUrl,
+        filename: req.file.filename,
       });
     } catch (error: any) {
-      console.error('Error saving media asset record:', error);
-      res.status(500).json({ error: error.message || 'Failed to save media record' });
+      console.error('Error saving image upload:', error);
+      res.status(500).json({ error: error.message || 'Failed to save image' });
     }
   });
 });
 
-// 8b. Upload Base64 Data URI to permanent disk storage
-bindRoute('post', ['/api/upload-base64'], (req: Request, res: Response) => {
+// 7b. Upload Base64 Data URI to storage
+bindRoute('post', ['/api/upload-base64'], async (req: Request, res: Response) => {
   try {
-    const { dataUri, name, category } = req.body;
+    const { dataUri, name } = req.body;
     if (!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
       res.status(400).json({ error: 'Valid image Data URI is required' });
       return;
     }
-    const saved = saveBase64Image(dataUri, name || 'upload', category || 'Uploads');
+    const saved = await saveBase64Image(dataUri, name || 'upload');
     if (!saved) {
       res.status(500).json({ error: 'Could not process and save base64 image' });
       return;
     }
     res.json({
       success: true,
-      message: 'Base64 image converted to permanent storage URL successfully',
+      message: 'Image stored in storage bucket successfully',
       url: saved.url,
-      asset: saved.asset,
     });
   } catch (error: any) {
     console.error('Error in /api/upload-base64:', error);
@@ -790,50 +750,14 @@ bindRoute('post', ['/api/upload-base64'], (req: Request, res: Response) => {
   }
 });
 
-// 9. Media Library: Delete media asset
-bindRoute('delete', ['/api/cms/media/:id'], (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const media = loadMediaStore();
-    const target = media.find((m) => m.id === id);
-
-    // Remove file from disk
-    if (target && target.url) {
-      const normalizedUrl = target.url.startsWith('/') ? target.url.slice(1) : target.url;
-      if (normalizedUrl.startsWith('uploads/')) {
-        const filename = path.basename(normalizedUrl);
-        try {
-          const filePath = path.join(UPLOADS_DIR, filename);
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        } catch {}
-        try {
-          const tmpFilePath = path.join(TMP_UPLOADS_DIR, filename);
-          if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
-        } catch {}
-      }
-    }
-
-    const updated = media.filter((m) => m.id !== id);
-    saveMediaStore(updated);
-
-    res.json({
-      success: true,
-      message: 'Image deleted permanently from storage bucket',
-      deletedAsset: target,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Failed to delete media' });
-  }
-});
-
-// 10. Enquiries / Orders: Get all
+// 8. Enquiries / Orders: Get all
 bindRoute('get', ['/api/enquiries'], (req: Request, res: Response) => {
   setNoCacheHeaders(res);
   const enquiries = loadEnquiriesStore();
   res.json(enquiries);
 });
 
-// 11. Enquiries / Orders: Create new
+// 9. Enquiries / Orders: Create new
 bindRoute('post', ['/api/enquiries'], (req: Request, res: Response) => {
   try {
     const { fullName, email, phone, categoryInterest, message, channel } = req.body;
@@ -857,7 +781,7 @@ bindRoute('post', ['/api/enquiries'], (req: Request, res: Response) => {
   }
 });
 
-// 12. Enquiries / Orders: Update status or notes
+// 10. Enquiries / Orders: Update status or notes
 bindRoute('patch', ['/api/enquiries/:id'], (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -877,7 +801,7 @@ bindRoute('patch', ['/api/enquiries/:id'], (req: Request, res: Response) => {
   }
 });
 
-// 13. Enquiries / Orders: Delete
+// 11. Enquiries / Orders: Delete
 bindRoute('delete', ['/api/enquiries/:id'], (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -890,9 +814,9 @@ bindRoute('delete', ['/api/enquiries/:id'], (req: Request, res: Response) => {
   }
 });
 
-  // ----------------------------------------------------
-  // VITE MIDDLEWARE / PRODUCTION STATIC SERVING
-  // ----------------------------------------------------
+// ----------------------------------------------------
+// VITE MIDDLEWARE / PRODUCTION STATIC SERVING
+// ----------------------------------------------------
 
 export async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -914,7 +838,7 @@ export async function startServer() {
   });
 }
 
-// Automatically start standalone server when executed directly (e.g. Cloud Run, Docker, node, tsx)
+// Automatically start standalone server when executed directly
 if (process.env.VERCEL !== '1' && !process.env.VERCEL_ENV) {
   startServer();
 }

@@ -12,7 +12,6 @@ import { AdminHomepage } from './AdminHomepage';
 import { AdminAbout } from './AdminAbout';
 import { AdminTestimonials } from './AdminTestimonials';
 import { AdminBrandContact } from './AdminBrandContact';
-import { AdminMediaLibrary } from './AdminMediaLibrary';
 import { AdminEnquiries } from './AdminEnquiries';
 import {
   LayoutDashboard,
@@ -112,7 +111,6 @@ export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
     { id: 'about', label: 'About & Heritage', icon: FileText },
     { id: 'testimonials', label: 'Testimonials', icon: MessageSquareQuote },
     { id: 'brand', label: 'Brand & Contact', icon: Settings },
-    { id: 'media', label: 'Media Library', icon: Image },
     { id: 'enquiries', label: 'Customer Leads', icon: Inbox, badge: newEnquiriesCount || undefined },
   ];
 
@@ -140,8 +138,6 @@ export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
         return <AdminTestimonials />;
       case 'brand':
         return <AdminBrandContact />;
-      case 'media':
-        return <AdminMediaLibrary />;
       case 'enquiries':
         return <AdminEnquiries />;
       default:

@@ -213,16 +213,6 @@ export interface CustomerEnquiry {
   channel?: 'Website Form' | 'WhatsApp Direct' | 'Quote Request';
 }
 
-export interface MediaAsset {
-  id: string;
-  url: string;
-  name: string;
-  size: number;
-  type: string;
-  createdAt: string;
-  category?: string;
-}
-
 export interface CMSContent {
   version: number;
   lastUpdated: string;

@@ -13,7 +13,6 @@ import {
   Settings,
   ArrowUpRight,
   ExternalLink,
-  ShieldCheck,
   Clock,
   AlertCircle,
 } from 'lucide-react';
@@ -26,7 +25,7 @@ interface AdminDashboardProps {
 
 export function AdminDashboard({ onSelectTab, onNavigate, onPreviewSite }: AdminDashboardProps) {
   const handleSelect = onNavigate || onSelectTab || (() => {});
-  const { publishedContent, draftContent, hasDraftChanges, mediaAssets, enquiries } = useCMS();
+  const { publishedContent, draftContent, hasDraftChanges, enquiries } = useCMS();
 
   const activeDraft = draftContent;
   const newEnquiriesCount = enquiries.filter((e) => e.status === 'New').length;
@@ -40,7 +39,6 @@ export function AdminDashboard({ onSelectTab, onNavigate, onPreviewSite }: Admin
     { id: 'interiors', title: 'Interior Services', count: `${activeDraft.services.length} services`, icon: Compass, color: 'text-indigo-500' },
     { id: 'gallery', title: 'Gallery & Portfolio', count: `${activeDraft.gallery.length} photos`, icon: Image, color: 'text-rose-500' },
     { id: 'enquiries', title: 'Customer Enquiries', count: `${newEnquiriesCount} new orders`, icon: Inbox, color: 'text-[#b89753]' },
-    { id: 'media', title: 'Central Media Library', count: `${mediaAssets.length} storage files`, icon: Image, color: 'text-cyan-500' },
     { id: 'about', title: 'About & Brand Story', count: 'Heritage & Pillars', icon: FileText, color: 'text-teal-500' },
     { id: 'homepage', title: 'Homepage Sections', count: 'Intro, Banner & CTA', icon: Sparkles, color: 'text-orange-500' },
     { id: 'testimonials', title: 'Client Reviews', count: `${activeDraft.testimonials.length} reviews`, icon: MessageSquareQuote, color: 'text-yellow-500' },
@@ -135,15 +133,15 @@ export function AdminDashboard({ onSelectTab, onNavigate, onPreviewSite }: Admin
         <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between text-neutral-400 mb-3">
             <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-neutral-500">
-              Storage Bucket
+              Categories
             </span>
-            <Image className="w-4 h-4 text-blue-500" />
+            <Layers className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-3xl font-serif text-[#1a1a1a] mb-1">
-            {mediaAssets.length}
+            {activeDraft.categories.length}
           </div>
           <span className="text-[11px] text-neutral-500">
-            Permanent high-res media files
+            Active furniture collections
           </span>
         </div>
 

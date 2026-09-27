@@ -1,8 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useCMS } from '../../context/CMSContext';
-import { MediaLibraryModal } from './MediaLibraryModal';
 import { validateImageFile } from '../../utils/imageUtils';
-import { Upload, FolderOpen, Trash2, Image as ImageIcon, Loader2, AlertCircle } from 'lucide-react';
+import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, Link2 } from 'lucide-react';
 
 interface ImageFieldProps {
   label: string;
@@ -14,10 +13,11 @@ interface ImageFieldProps {
 
 export function ImageField({ label, value, onChange, helperText, category = 'General' }: ImageFieldProps) {
   const { uploadFile } = useCMS();
-  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [customUrl, setCustomUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = async (file: File) => {
@@ -35,7 +35,7 @@ export function ImageField({ label, value, onChange, helperText, category = 'Gen
         onChange(result.url);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to process image upload.');
+      setErrorMessage(err.message || 'Failed to upload image directly to storage.');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -67,6 +67,14 @@ export function ImageField({ label, value, onChange, helperText, category = 'Gen
     }
   };
 
+  const handleApplyCustomUrl = () => {
+    if (customUrl.trim()) {
+      onChange(customUrl.trim());
+      setCustomUrl('');
+      setShowUrlInput(false);
+    }
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -93,19 +101,18 @@ export function ImageField({ label, value, onChange, helperText, category = 'Gen
           {isUploading ? (
             <div className="flex flex-col items-center justify-center text-[#b89753] p-2 text-center">
               <Loader2 className="w-6 h-6 animate-spin" />
-              <span className="text-[9px] uppercase tracking-wider font-semibold mt-1">Processing</span>
+              <span className="text-[9px] uppercase tracking-wider font-semibold mt-1">Uploading</span>
             </div>
           ) : value ? (
             <>
               <img src={value} alt={label} className="w-full h-full object-cover" />
-              {/* Overlay Remove Button on Preview */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onChange('');
                 }}
-                title="Remove / Delete Image"
+                title="Remove Image"
                 className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center shadow-md transition-all cursor-pointer hover:scale-110"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -140,30 +147,50 @@ export function ImageField({ label, value, onChange, helperText, category = 'Gen
               className="inline-flex items-center gap-1.5 bg-[#b89753] hover:bg-[#a38442] text-white px-4 py-2 rounded-full text-xs font-medium uppercase tracking-[0.1em] shadow-xs transition-all cursor-pointer disabled:opacity-50"
             >
               {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-              <span>{isUploading ? 'Uploading...' : 'Upload Photo'}</span>
+              <span>{isUploading ? 'Uploading...' : 'Direct Upload'}</span>
             </button>
+
             <button
               type="button"
-              onClick={() => setIsMediaModalOpen(true)}
-              disabled={isUploading}
-              className="inline-flex items-center gap-1.5 bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-300 px-4 py-2 rounded-full text-xs font-medium uppercase tracking-[0.1em] shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              onClick={() => setShowUrlInput(!showUrlInput)}
+              className="inline-flex items-center gap-1.5 bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-300 px-4 py-2 rounded-full text-xs font-medium uppercase tracking-[0.1em] shadow-xs transition-all cursor-pointer"
             >
-              <FolderOpen className="w-3.5 h-3.5 text-[#b89753]" />
-              <span>Media Library</span>
+              <Link2 className="w-3.5 h-3.5 text-[#b89753]" />
+              <span>Link URL</span>
             </button>
+
             {value && (
               <button
                 type="button"
                 onClick={() => onChange('')}
                 disabled={isUploading}
                 className="inline-flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3.5 py-2 rounded-full text-xs font-medium transition-all cursor-pointer"
-                title="Remove / Delete image"
+                title="Remove image"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Remove Image</span>
               </button>
             )}
           </div>
+
+          {showUrlInput && (
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="url"
+                value={customUrl}
+                onChange={(e) => setCustomUrl(e.target.value)}
+                placeholder="https://images.unsplash.com/... or storage URL"
+                className="flex-1 bg-white border border-neutral-300 rounded-xl px-3 py-1.5 text-xs text-neutral-800 focus:outline-none focus:border-[#b89753]"
+              />
+              <button
+                type="button"
+                onClick={handleApplyCustomUrl}
+                className="bg-[#1a1a1a] text-white px-3 py-1.5 rounded-xl text-xs font-medium hover:bg-neutral-800 cursor-pointer"
+              >
+                Apply
+              </button>
+            </div>
+          )}
 
           {errorMessage && (
             <div className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-lg">
@@ -175,25 +202,14 @@ export function ImageField({ label, value, onChange, helperText, category = 'Gen
           <div className="text-[11px] text-neutral-500 truncate max-w-md">
             {value ? (
               <span className="font-mono text-[10px] text-neutral-600 truncate block" title={value}>
-                {value.startsWith('data:') ? 'Base64 Direct Asset' : value}
+                {value}
               </span>
             ) : (
-              <span>{helperText || 'Drag and drop, upload from computer, or choose from Media Library (JPG, PNG, WebP, max 15MB).'}</span>
+              <span>{helperText || 'Drag and drop or upload directly from your device (JPG, PNG, WebP, max 15MB).'}</span>
             )}
           </div>
         </div>
       </div>
-
-      <MediaLibraryModal
-        isOpen={isMediaModalOpen}
-        onClose={() => setIsMediaModalOpen(false)}
-        onSelect={(url) => {
-          onChange(url);
-          setErrorMessage(null);
-        }}
-        currentUrl={value}
-        title={`Select Image for ${label}`}
-      />
     </div>
   );
 }
