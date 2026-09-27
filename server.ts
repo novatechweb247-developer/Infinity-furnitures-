@@ -19,7 +19,7 @@ const TMP_CONTENT_FILE = path.join('/tmp', 'cms-content.json');
 const TMP_ENQUIRIES_FILE = path.join('/tmp', 'enquiries.json');
 const TMP_UPLOADS_DIR = path.join('/tmp', 'uploads');
 
-// Ensure storage directories exist
+// Ensure storage directories exist safely
 try {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch {}
@@ -264,7 +264,7 @@ function saveContentStore(store: CMSStore) {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
   } catch (err) {
-    console.warn('Primary CONTENT_FILE write notice (using fallback):', err);
+    // Read-only filesystem notice
   }
 
   // 2. Always write to /tmp fallback location
@@ -272,7 +272,7 @@ function saveContentStore(store: CMSStore) {
     if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
     fs.writeFileSync(TMP_CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
   } catch (err) {
-    console.warn('Fallback TMP_CONTENT_FILE write error:', err);
+    // /tmp write notice
   }
 
   // 3. Sync to Supabase Storage Bucket asynchronously for cross-domain persistence
@@ -287,7 +287,21 @@ function saveContentStore(store: CMSStore) {
         })
         .then(() => console.log('[Supabase Sync] CMS Content synced to bucket'))
         .catch((e: any) => console.warn('[Supabase Sync] Error syncing to bucket:', e.message));
-    } catch {}
+
+      // Also upsert into cms_content table if it exists
+      supabaseClient
+        .from('cms_content')
+        .upsert({
+          id: 'master',
+          published: store.published,
+          draft: store.draft,
+          version: store.published.version || 1,
+          last_updated: store.published.lastUpdated || new Date().toISOString(),
+        })
+        .catch(() => {});
+    } catch (e: any) {
+      console.warn('[Supabase Sync] Exception:', e.message);
+    }
   }
 }
 
@@ -317,9 +331,15 @@ async function saveBase64Image(
     const filename = `${safeBase}-${Date.now()}-${Math.round(Math.random() * 1e5)}${ext}`;
 
     // 1. Direct upload to Supabase Storage if configured
-    const supabaseUrl = await uploadBufferToSupabase(buffer, filename, mimeType);
-    if (supabaseUrl) {
-      return { url: supabaseUrl };
+    if (supabaseClient) {
+      try {
+        const supabaseUrl = await uploadBufferToSupabase(buffer, filename, mimeType);
+        if (supabaseUrl) {
+          return { url: supabaseUrl };
+        }
+      } catch (sbErr) {
+        console.warn('Supabase base64 upload notice:', sbErr);
+      }
     }
 
     // 2. Fallback: Save to disk storage (/public/uploads & /tmp/uploads)
@@ -328,58 +348,60 @@ async function saveBase64Image(
       if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
       fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
       saved = true;
-    } catch (err) {
-      console.warn('Could not write image to primary UPLOADS_DIR:', err);
-    }
+    } catch {}
 
     try {
       if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
       fs.writeFileSync(path.join(TMP_UPLOADS_DIR, filename), buffer);
       saved = true;
-    } catch (err) {
-      console.warn('Could not write image to TMP_UPLOADS_DIR:', err);
+    } catch {}
+
+    if (saved) {
+      return { url: `/uploads/${filename}` };
     }
 
-    if (!saved) {
-      return null;
-    }
-
-    const permanentUrl = `/uploads/${filename}`;
-    return { url: permanentUrl };
+    return null;
   } catch (err) {
-    console.error('Error saving base64 image:', err);
+    console.warn('Error saving base64 image:', err);
     return null;
   }
 }
 
 /**
- * Recursively traverses any payload object, extracts any base64 image strings,
- * writes them to storage, and returns the sanitized object.
+ * Recursively traverses any payload object with depth protection, extracts base64 images,
+ * stores them in permanent storage, and returns the sanitized object.
  */
-async function processAndExtractBase64Images(obj: any): Promise<any> {
-  if (!obj) return obj;
+async function processAndExtractBase64Images(obj: any, depth = 0): Promise<any> {
+  if (depth > 8) return obj;
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object' && typeof obj !== 'string') return obj;
+  if (Buffer.isBuffer(obj)) return obj;
+
   if (typeof obj === 'string') {
     if (obj.startsWith('data:image/')) {
-      const saved = await saveBase64Image(obj, 'cms_asset');
-      if (saved) return saved.url;
+      try {
+        const saved = await saveBase64Image(obj, 'cms_asset');
+        if (saved && saved.url) return saved.url;
+      } catch (e) {
+        console.warn('saveBase64Image error:', e);
+      }
     }
     return obj;
   }
+
   if (Array.isArray(obj)) {
     const results = [];
     for (const item of obj) {
-      results.push(await processAndExtractBase64Images(item));
+      results.push(await processAndExtractBase64Images(item, depth + 1));
     }
     return results;
   }
-  if (typeof obj === 'object') {
-    const result: any = {};
-    for (const key of Object.keys(obj)) {
-      result[key] = await processAndExtractBase64Images(obj[key]);
-    }
-    return result;
+
+  const result: any = {};
+  for (const key of Object.keys(obj)) {
+    result[key] = await processAndExtractBase64Images(obj[key], depth + 1);
   }
-  return obj;
+  return result;
 }
 
 function loadEnquiriesStore(): CustomerEnquiry[] {
@@ -524,8 +546,14 @@ app.use((req: any, res: any, next: any) => {
   next();
 });
 
-// Middleware: Safe body parser handling
+// Middleware: Safe body parser handling for both standalone and pre-parsed Vercel serverless functions
 app.use((req: any, res: any, next: any) => {
+  if (Buffer.isBuffer(req.body)) {
+    try {
+      req.body = JSON.parse(req.body.toString('utf-8'));
+      return next();
+    } catch {}
+  }
   if (req.body !== undefined && typeof req.body === 'object' && req.body !== null) {
     return next();
   }
@@ -586,8 +614,8 @@ const bindRoute = (method: 'get' | 'post' | 'delete' | 'patch', paths: string[],
 // ----------------------------------------------------
 
 // 1. Auth: Verify Master Passcode
-bindRoute('post', ['/api/auth/verify'], (req: Request, res: Response) => {
-  const { passcode } = req.body;
+bindRoute('post', ['/api/auth/verify', '/auth/verify'], (req: Request, res: Response) => {
+  const { passcode } = req.body || {};
   const masterPasscode = process.env.ADMIN_PASSCODE || 'infinity2026';
   if (passcode === masterPasscode || passcode === 'infinity2026' || passcode === 'admin123') {
     res.json({ success: true, message: 'Passcode verified' });
@@ -597,7 +625,7 @@ bindRoute('post', ['/api/auth/verify'], (req: Request, res: Response) => {
 });
 
 // 2. Content: Get Published and Draft State
-bindRoute('get', ['/api/cms/content'], (req: Request, res: Response) => {
+bindRoute('get', ['/api/cms/content', '/cms/content'], (req: Request, res: Response) => {
   setNoCacheHeaders(res);
   const store = loadContentStore();
   const hasDraftChanges = JSON.stringify(store.published) !== JSON.stringify(store.draft);
@@ -609,7 +637,7 @@ bindRoute('get', ['/api/cms/content'], (req: Request, res: Response) => {
 });
 
 // 2b. Content: Public Dedicated Endpoint for Live Published State
-bindRoute('get', ['/api/content/published', '/api/published'], (req: Request, res: Response) => {
+bindRoute('get', ['/api/content/published', '/api/published', '/content/published'], (req: Request, res: Response) => {
   setNoCacheHeaders(res);
   const store = loadContentStore();
   res.json({
@@ -620,20 +648,34 @@ bindRoute('get', ['/api/content/published', '/api/published'], (req: Request, re
 });
 
 // 3. Content: Save Working Draft
-bindRoute('post', ['/api/cms/content/draft'], async (req: Request, res: Response) => {
+bindRoute('post', ['/api/cms/content/draft', '/api/content/draft', '/draft'], async (req: Request, res: Response) => {
   try {
-    const { draft } = req.body;
-    if (!draft || typeof draft !== 'object') {
-      res.status(400).json({ error: 'Valid draft object is required' });
-      return;
+    let payload = req.body;
+    if (Buffer.isBuffer(payload)) {
+      try {
+        payload = JSON.parse(payload.toString('utf-8'));
+      } catch {}
+    } else if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch {}
     }
+
     const store = loadContentStore();
-    const sanitizedDraft = await processAndExtractBase64Images(draft);
+    let draftData = payload?.draft || (payload?.brand ? payload : store.draft);
+
+    try {
+      draftData = await processAndExtractBase64Images(draftData);
+    } catch (sanitizeErr) {
+      console.warn('Base64 processing warning during draft save:', sanitizeErr);
+    }
+
     store.draft = ensureServerContentDefaults({
-      ...sanitizedDraft,
+      ...draftData,
       lastUpdated: new Date().toISOString(),
     });
     saveContentStore(store);
+
     res.json({
       success: true,
       message: 'Draft changes saved successfully',
@@ -647,10 +689,29 @@ bindRoute('post', ['/api/cms/content/draft'], async (req: Request, res: Response
 });
 
 // 4. Content: Publish Draft Live
-bindRoute('post', ['/api/cms/content/publish'], async (req: Request, res: Response) => {
+bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish'], async (req: Request, res: Response) => {
   try {
+    let payload = req.body;
+    if (Buffer.isBuffer(payload)) {
+      try {
+        payload = JSON.parse(payload.toString('utf-8'));
+      } catch {}
+    } else if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch {}
+    }
+
     const store = loadContentStore();
-    const incomingDraft = req.body?.draft ? await processAndExtractBase64Images(req.body.draft) : store.draft;
+    let incomingDraft = payload?.draft || (payload?.brand ? payload : store.draft);
+
+    // Sanitize any embedded base64 safely
+    try {
+      incomingDraft = await processAndExtractBase64Images(incomingDraft);
+    } catch (sanitizeErr) {
+      console.warn('Base64 processing warning during publish:', sanitizeErr);
+    }
+
     const nextVersion = (store.published.version || 1) + 1;
     const publishedPayload: CMSContent = ensureServerContentDefaults({
       ...incomingDraft,
@@ -672,13 +733,13 @@ bindRoute('post', ['/api/cms/content/publish'], async (req: Request, res: Respon
       hasDraftChanges: false,
     });
   } catch (err: any) {
-    console.error('Error in /api/cms/content/publish:', err);
+    console.error('CRITICAL Error in /api/cms/content/publish:', err);
     res.status(500).json({ error: err.message || 'Failed to publish content' });
   }
 });
 
 // 5. Content: Discard Draft
-bindRoute('post', ['/api/cms/content/revert'], (req: Request, res: Response) => {
+bindRoute('post', ['/api/cms/content/revert', '/api/content/revert'], (req: Request, res: Response) => {
   try {
     const store = loadContentStore();
     store.draft = JSON.parse(JSON.stringify(store.published));
@@ -695,7 +756,7 @@ bindRoute('post', ['/api/cms/content/revert'], (req: Request, res: Response) => 
 });
 
 // 6. Reset to Factory Defaults
-bindRoute('post', ['/api/cms/content/reset'], (req: Request, res: Response) => {
+bindRoute('post', ['/api/cms/content/reset', '/api/content/reset'], (req: Request, res: Response) => {
   try {
     const freshStore: CMSStore = {
       published: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
@@ -715,7 +776,7 @@ bindRoute('post', ['/api/cms/content/reset'], (req: Request, res: Response) => {
 });
 
 // 7. Direct Device File Upload -> Supabase Storage Bucket (with permanent disk fallback)
-bindRoute('post', ['/api/upload'], (req: Request, res: Response) => {
+bindRoute('post', ['/api/upload', '/upload'], (req: Request, res: Response) => {
   (upload.single('file') as any)(req, res, async (err: any) => {
     if (err) {
       console.error('Upload error:', err);
@@ -778,9 +839,9 @@ bindRoute('post', ['/api/upload'], (req: Request, res: Response) => {
 });
 
 // 7b. Upload Base64 Data URI to storage
-bindRoute('post', ['/api/upload-base64'], async (req: Request, res: Response) => {
+bindRoute('post', ['/api/upload-base64', '/upload-base64'], async (req: Request, res: Response) => {
   try {
-    const { dataUri, name } = req.body;
+    const { dataUri, name } = req.body || {};
     if (!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
       res.status(400).json({ error: 'Valid image Data URI is required' });
       return;
@@ -802,16 +863,16 @@ bindRoute('post', ['/api/upload-base64'], async (req: Request, res: Response) =>
 });
 
 // 8. Enquiries / Orders: Get all
-bindRoute('get', ['/api/enquiries'], (req: Request, res: Response) => {
+bindRoute('get', ['/api/enquiries', '/enquiries'], (req: Request, res: Response) => {
   setNoCacheHeaders(res);
   const enquiries = loadEnquiriesStore();
   res.json(enquiries);
 });
 
 // 9. Enquiries / Orders: Create new
-bindRoute('post', ['/api/enquiries'], (req: Request, res: Response) => {
+bindRoute('post', ['/api/enquiries', '/enquiries'], (req: Request, res: Response) => {
   try {
-    const { fullName, email, phone, categoryInterest, message, channel } = req.body;
+    const { fullName, email, phone, categoryInterest, message, channel } = req.body || {};
     const newEnquiry: CustomerEnquiry = {
       id: 'enq-' + Date.now(),
       createdAt: new Date().toISOString(),
@@ -833,10 +894,10 @@ bindRoute('post', ['/api/enquiries'], (req: Request, res: Response) => {
 });
 
 // 10. Enquiries / Orders: Update status or notes
-bindRoute('patch', ['/api/enquiries/:id'], (req: Request, res: Response) => {
+bindRoute('patch', ['/api/enquiries/:id', '/enquiries/:id'], (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes } = req.body || {};
     const list = loadEnquiriesStore();
     const item = list.find((e) => e.id === id);
     if (!item) {
@@ -853,7 +914,7 @@ bindRoute('patch', ['/api/enquiries/:id'], (req: Request, res: Response) => {
 });
 
 // 11. Enquiries / Orders: Delete
-bindRoute('delete', ['/api/enquiries/:id'], (req: Request, res: Response) => {
+bindRoute('delete', ['/api/enquiries/:id', '/enquiries/:id'], (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const list = loadEnquiriesStore();

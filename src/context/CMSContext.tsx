@@ -611,7 +611,14 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
+        let errDetail = `Server returned status ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData && errData.error) {
+            errDetail = errData.error;
+          }
+        } catch {}
+        throw new Error(errDetail);
       }
 
       const responseData = await res.json();
