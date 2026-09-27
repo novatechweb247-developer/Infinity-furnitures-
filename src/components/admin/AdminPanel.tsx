@@ -46,7 +46,7 @@ export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
     draftContent,
     hasDraftChanges,
     isPublishing,
-    publishDraft,
+    saveAndPublish,
     discardDraft,
     enquiries,
     notification,
@@ -79,7 +79,7 @@ export function AdminPanel({ onExitAdmin, onPreviewSite }: AdminPanelProps) {
   };
 
   const handlePublish = async () => {
-    const ok = await publishDraft();
+    const ok = await saveAndPublish();
     if (ok) {
       showToast('🎉 All draft changes are now published live!');
     }

@@ -75,9 +75,8 @@ export interface CMSContextType {
 
   // Publishing & lifecycle workflow
   saveDraft: () => Promise<boolean>;
-  publishLive: () => Promise<boolean>;
-  publishToLive: () => Promise<boolean>;
   publishDraft: () => Promise<boolean>;
+  saveAndPublish: () => Promise<boolean>;
   revertDraft: () => Promise<boolean>;
   discardDraft: () => Promise<boolean>;
   resetToDefaults: () => Promise<boolean>;
@@ -634,7 +633,7 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
   }, [showNotification]);
 
   // Publish Live
-  const publishLive = useCallback(async (): Promise<boolean> => {
+  const publishDraft = useCallback(async (): Promise<boolean> => {
     try {
       setIsPublishing(true);
       const payloadDraft = draftContentRef.current;
@@ -689,6 +688,25 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
       setIsPublishing(false);
     }
   }, [showNotification]);
+
+  // Integrated Save & Publish Workflow
+  const saveAndPublish = useCallback(async (): Promise<boolean> => {
+    try {
+      setIsPublishing(true);
+      const draftSaved = await saveDraft();
+      if (!draftSaved) {
+        throw new Error('Could not save draft changes before publishing.');
+      }
+      const publishSuccess = await publishDraft();
+      return publishSuccess;
+    } catch (err: any) {
+      console.error('Save and Publish workflow error:', err);
+      showNotification(`Publish failed: ${err.message || 'Server error'}`, 'error');
+      return false;
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [saveDraft, publishDraft, showNotification]);
 
   // Revert / Discard Draft
   const revertDraft = useCallback(async (): Promise<boolean> => {
@@ -912,9 +930,8 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
         saveWhyPoints,
         saveMethodology,
         saveDraft,
-        publishLive,
-        publishToLive: publishLive,
-        publishDraft: publishLive,
+        publishDraft,
+        saveAndPublish,
         revertDraft,
         discardDraft: revertDraft,
         resetToDefaults,

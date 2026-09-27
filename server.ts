@@ -233,6 +233,14 @@ async function syncToSupabaseStorage(store: CMSStore): Promise<boolean> {
   for (const bucket of buckets) {
     try {
       console.log(`[Supabase Storage] Attempting sync to bucket "${bucket}"...`);
+      
+      // Proactively ensure the bucket exists (self-healing fallback)
+      try {
+        await supabaseClient.storage.createBucket(bucket, { public: true });
+      } catch (bucketCreateErr: any) {
+        // Safe to ignore if bucket already exists or if we lack permissions
+      }
+
       const { error } = await supabaseClient.storage
         .from(bucket)
         .upload('_cms_database/content_store.json', jsonBuffer, {
@@ -288,9 +296,44 @@ async function loadFromSupabaseStorage(): Promise<CMSStore | null> {
           verifiedBucket = bucket;
           return parsed;
         }
+      } else if (error) {
+        console.warn(`[Supabase Storage] Download failed from bucket "${bucket}":`, error.message);
       }
     } catch (err: any) {
       console.warn(`[Supabase Storage] Load exception for bucket "${bucket}":`, err.message);
+    }
+  }
+  return null;
+}
+
+async function loadFromSupabaseTable(): Promise<CMSStore | null> {
+  if (!supabaseClient) return null;
+  
+  const tables = [verifiedTable, 'cms_content', 'cms_data', 'content', 'settings'].filter((t): t is string => typeof t === 'string' && t.length > 0);
+  
+  for (const table of tables) {
+    try {
+      console.log(`[Supabase DB] Attempting load from table "${table}"...`);
+      const { data, error } = await supabaseClient
+        .from(table)
+        .select('*')
+        .eq('id', 'master')
+        .maybeSingle();
+        
+      if (!error && data) {
+        if (data.published || data.draft) {
+          console.log(`[Supabase DB] Successfully loaded content store from table "${table}".`);
+          verifiedTable = table;
+          return {
+            published: ensureServerContentDefaults(data.published),
+            draft: ensureServerContentDefaults(data.draft || data.published),
+          };
+        }
+      } else if (error) {
+        console.warn(`[Supabase DB] Load failed from table "${table}":`, error.message);
+      }
+    } catch (err: any) {
+      console.warn(`[Supabase DB] Load exception for table "${table}":`, err.message);
     }
   }
   return null;
@@ -334,7 +377,12 @@ async function loadContentStoreAsync(): Promise<CMSStore> {
   
   if (supabaseClient) {
     try {
-      const remoteStore = await loadFromSupabaseStorage();
+      let remoteStore = await loadFromSupabaseStorage();
+      if (!remoteStore) {
+        console.log('[Supabase Load] Storage load returned null. Trying database table fallback...');
+        remoteStore = await loadFromSupabaseTable();
+      }
+      
       if (remoteStore) {
         memoryContentStore = remoteStore;
         lastFetchTime = now;
