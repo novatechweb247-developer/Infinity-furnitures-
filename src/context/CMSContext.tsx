@@ -33,6 +33,7 @@ import {
   loadPublishedFromStorage,
   loadDraftFromStorage,
   persistMediaAssets,
+  sanitizeAndConvertBase64Images,
 } from '../utils/storageService';
 
 export {
@@ -310,17 +311,16 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
     }
   }, [mediaAssets]);
 
-  // Clean legacy bloated localStorage entries and rehydrate authoritative IndexedDB state
+  // Clean legacy bloated localStorage entries and rehydrate temporary storage if server has not responded yet
   useEffect(() => {
     cleanLegacyLocalStorage();
 
     loadPublishedFromStorage().then((idbPub) => {
+      // Only hydrate from offline storage if server fetch has NOT finished yet
       if (idbPub && !hasFetchedFromServerRef.current) {
         setPublishedContent((curr) => {
-          if (!curr || (idbPub.version && idbPub.version > (curr.version || 0))) {
-            return ensureContentDefaults(idbPub);
-          }
-          return curr;
+          if (hasFetchedFromServerRef.current) return curr;
+          return ensureContentDefaults(idbPub);
         });
       }
     });
@@ -328,12 +328,10 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
     loadDraftFromStorage().then((idbDraft) => {
       if (idbDraft && !hasFetchedFromServerRef.current) {
         setDraftContent((curr) => {
-          if (!curr || (idbDraft.version && idbDraft.version > (curr.version || 0))) {
-            const clean = ensureContentDefaults(idbDraft);
-            draftContentRef.current = clean;
-            return clean;
-          }
-          return curr;
+          if (hasFetchedFromServerRef.current) return curr;
+          const clean = ensureContentDefaults(idbDraft);
+          draftContentRef.current = clean;
+          return clean;
         });
       }
     });
@@ -369,25 +367,33 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
     setIsAuthenticated(false);
   }, []);
 
-  // 2. Fetch Initial Content from server on mount - Authoritative database sync
+  // 2. Fetch Initial Content from server on mount - Authoritative database sync across all devices
   const fetchContent = useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await fetch('/api/cms/content');
+      // Explicit cache busting and no-store headers ensure no proxy, CDN, or browser serves stale content
+      const cacheBuster = `_t=${Date.now()}`;
+      const res = await fetch(`/api/cms/content?${cacheBuster}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
+
       if (res.ok) {
         const data = await res.json();
-        if (data.published && data.draft) {
+        if (data && data.published) {
           const serverPublished = ensureContentDefaults(data.published);
-          const serverDraft = ensureContentDefaults(data.draft);
+          const serverDraft = data.draft ? ensureContentDefaults(data.draft) : serverPublished;
 
-          // Update published content unconditionally from database/server
+          // AUTHORITATIVE SINGLE SOURCE OF TRUTH: Server published content wins unconditionally
           setPublishedContent(serverPublished);
           publishedContentRef.current = serverPublished;
           localStorage.setItem('infinity_cms_published', JSON.stringify(serverPublished));
           localStorage.setItem(LOCAL_STORAGE_KEY_PUBLISHED, JSON.stringify(serverPublished));
           persistPublishedContent(serverPublished).catch(() => {});
 
-          // Adopt server draft state as authoritative
           setDraftContent(serverDraft);
           draftContentRef.current = serverDraft;
           localStorage.setItem('infinity_cms_draft', JSON.stringify(serverDraft));
@@ -395,9 +401,31 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
           persistDraftContent(serverDraft).catch(() => {});
           setHasDraftChanges(Boolean(data.hasDraftChanges));
         }
+      } else {
+        // Fallback to dedicated published endpoint if /api/cms/content returned non-200
+        console.warn(`Server /api/cms/content returned ${res.status}, attempting /api/content/published fallback...`);
+        try {
+          const pubRes = await fetch(`/api/content/published?${cacheBuster}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          });
+          if (pubRes.ok) {
+            const pubData = await pubRes.json();
+            if (pubData && pubData.published) {
+              const serverPub = ensureContentDefaults(pubData.published);
+              setPublishedContent(serverPub);
+              publishedContentRef.current = serverPub;
+              localStorage.setItem('infinity_cms_published', JSON.stringify(serverPub));
+              localStorage.setItem(LOCAL_STORAGE_KEY_PUBLISHED, JSON.stringify(serverPub));
+              persistPublishedContent(serverPub).catch(() => {});
+            }
+          }
+        } catch (fallbackErr) {
+          console.warn('Fallback published fetch error:', fallbackErr);
+        }
       }
     } catch (err) {
-      console.warn('Could not fetch CMS from server, running in resilient local mode:', err);
+      console.warn('Network error fetching CMS from server, utilizing cached storage:', err);
     } finally {
       hasFetchedFromServerRef.current = true;
       setIsLoading(false);
@@ -408,7 +436,10 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
   const loadMedia = useCallback(async () => {
     try {
       setIsLoadingMedia(true);
-      const res = await fetch('/api/cms/media');
+      const res = await fetch(`/api/cms/media?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -427,7 +458,10 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
   const loadEnquiries = useCallback(async () => {
     try {
       setIsLoadingEnquiries(true);
-      const res = await fetch('/api/enquiries');
+      const res = await fetch(`/api/enquiries?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      });
       if (res.ok) {
         const serverData = await res.json();
         if (Array.isArray(serverData)) {
@@ -633,107 +667,113 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
     setIsSaving(true);
     try {
       const currentDraft = draftContentRef.current;
-      safeSetLocalStorage(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(currentDraft));
-      localStorage.setItem('infinity_cms_draft', JSON.stringify(currentDraft));
+      const sanitizedDraft = await sanitizeAndConvertBase64Images(currentDraft);
 
       const res = await fetch('/api/cms/content/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: currentDraft }),
+        body: JSON.stringify({ draft: sanitizedDraft }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.draft) {
-          const authoritativeDraft = ensureContentDefaults(data.draft);
-          setDraftContent(authoritativeDraft);
-          draftContentRef.current = authoritativeDraft;
-          localStorage.setItem('infinity_cms_draft', JSON.stringify(authoritativeDraft));
-          localStorage.setItem(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(authoritativeDraft));
-          persistDraftContent(authoritativeDraft).catch(() => {});
-        }
-        showNotification('Draft changes successfully saved to server storage.', 'success');
-        return true;
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        let errorMsg = `Server returned status ${res.status}`;
+        try {
+          const parsed = JSON.parse(errorText);
+          if (parsed.error) errorMsg = parsed.error;
+        } catch {}
+        throw new Error(errorMsg);
       }
-      throw new Error('Server returned non-200');
-    } catch (err) {
-      showNotification('Draft preserved safely in local storage.', 'info');
+
+      const data = await res.json();
+      if (data && data.draft) {
+        const authoritativeDraft = ensureContentDefaults(data.draft);
+        setDraftContent(authoritativeDraft);
+        draftContentRef.current = authoritativeDraft;
+        localStorage.setItem('infinity_cms_draft', JSON.stringify(authoritativeDraft));
+        localStorage.setItem(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(authoritativeDraft));
+        persistDraftContent(authoritativeDraft).catch(() => {});
+        setHasDraftChanges(Boolean(data.hasDraftChanges));
+      }
+      showNotification('Draft changes successfully saved to server storage.', 'success');
       return true;
+    } catch (err: any) {
+      console.warn('Server draft save error:', err);
+      // Safely preserve draft in local browser cache while alerting user
+      safeSetLocalStorage(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(draftContentRef.current));
+      localStorage.setItem('infinity_cms_draft', JSON.stringify(draftContentRef.current));
+      showNotification(`Warning: Could not save draft to server (${err.message || 'Network error'}). Preserved in this browser only.`, 'error');
+      return false;
     } finally {
       setIsSaving(false);
     }
   }, [showNotification]);
 
-  // 5. Content Publishing Pipeline: Direct deep copy of draftState into publishedState with direct localStorage persistence
+  // 5. Authoritative Content Publishing Pipeline
+  // Strictly verifies server persistence BEFORE marking published or updating live state
   const publishLive = useCallback(async (): Promise<boolean> => {
     setIsPublishing(true);
     try {
-      // Direct deep copy of current draft state into published state
       const currentDraft = draftContentRef.current || draftContent;
-      const updatedPublishedState: CMSContent = JSON.parse(JSON.stringify(currentDraft));
+      const payloadDraft: CMSContent = JSON.parse(JSON.stringify(currentDraft));
 
-      // Optimistic state updates
-      setPublishedContent(updatedPublishedState);
-      setDraftContent(updatedPublishedState);
-      draftContentRef.current = updatedPublishedState;
-      publishedContentRef.current = updatedPublishedState;
+      // Sanitize and convert any local base64 images into permanent server URLs
+      const sanitizedDraft = await sanitizeAndConvertBase64Images(payloadDraft);
+
+      // Send payload to authoritative server publish endpoint
+      const res = await fetch('/api/cms/content/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draft: sanitizedDraft }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        let errorMsg = `Server error ${res.status}`;
+        try {
+          const parsed = JSON.parse(errorText);
+          if (parsed.error) errorMsg = parsed.error;
+        } catch {}
+        throw new Error(errorMsg);
+      }
+
+      const data = await res.json();
+      if (!data || !data.published) {
+        throw new Error('Server confirmed publish but returned invalid payload');
+      }
+
+      // ONLY on confirmed server write do we adopt the new published state!
+      const authoritativePublished = ensureContentDefaults(data.published);
+      const authoritativeDraft = data.draft ? ensureContentDefaults(data.draft) : authoritativePublished;
+
+      setPublishedContent(authoritativePublished);
+      setDraftContent(authoritativeDraft);
+      draftContentRef.current = authoritativeDraft;
+      publishedContentRef.current = authoritativePublished;
       setHasDraftChanges(false);
 
-      // Write directly to localStorage under exact requested keys
+      // Mirror authoritative published state to local cache for fast offline starts
       try {
-        localStorage.setItem('infinity_cms_published', JSON.stringify(updatedPublishedState));
-        localStorage.setItem('infinity_cms_draft', JSON.stringify(updatedPublishedState));
-        localStorage.setItem(LOCAL_STORAGE_KEY_PUBLISHED, JSON.stringify(updatedPublishedState));
-        localStorage.setItem(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(updatedPublishedState));
-        persistPublishedContent(updatedPublishedState).catch(() => {});
-        persistDraftContent(updatedPublishedState).catch(() => {});
+        localStorage.setItem('infinity_cms_published', JSON.stringify(authoritativePublished));
+        localStorage.setItem('infinity_cms_draft', JSON.stringify(authoritativeDraft));
+        localStorage.setItem(LOCAL_STORAGE_KEY_PUBLISHED, JSON.stringify(authoritativePublished));
+        localStorage.setItem(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(authoritativeDraft));
+        persistPublishedContent(authoritativePublished).catch(() => {});
+        persistDraftContent(authoritativeDraft).catch(() => {});
       } catch (storageErr) {
-        console.warn('LocalStorage error during publishLive:', storageErr);
+        console.warn('LocalStorage error during cache update:', storageErr);
       }
 
       // Dispatch global custom event for instant public page refresh without reload
       window.dispatchEvent(
-        new CustomEvent(CMS_PUBLISHED_EVENT, { detail: updatedPublishedState })
+        new CustomEvent(CMS_PUBLISHED_EVENT, { detail: authoritativePublished })
       );
 
-      // Send payload to server endpoint and adopt authoritative published state
-      try {
-        const res = await fetch('/api/cms/content/publish', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ draft: updatedPublishedState }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.published) {
-            const authoritativePublished = ensureContentDefaults(data.published);
-            const authoritativeDraft = data.draft ? ensureContentDefaults(data.draft) : authoritativePublished;
-
-            setPublishedContent(authoritativePublished);
-            setDraftContent(authoritativeDraft);
-            draftContentRef.current = authoritativeDraft;
-            publishedContentRef.current = authoritativePublished;
-
-            localStorage.setItem('infinity_cms_published', JSON.stringify(authoritativePublished));
-            localStorage.setItem('infinity_cms_draft', JSON.stringify(authoritativeDraft));
-            localStorage.setItem(LOCAL_STORAGE_KEY_PUBLISHED, JSON.stringify(authoritativePublished));
-            localStorage.setItem(LOCAL_STORAGE_KEY_DRAFT, JSON.stringify(authoritativeDraft));
-            persistPublishedContent(authoritativePublished).catch(() => {});
-            persistDraftContent(authoritativeDraft).catch(() => {});
-
-            window.dispatchEvent(
-              new CustomEvent(CMS_PUBLISHED_EVENT, { detail: authoritativePublished })
-            );
-          }
-        }
-      } catch (serverErr) {
-        console.warn('Server publish sync encountered issue, local publish succeeded:', serverErr);
-      }
-
-      showNotification('All draft changes are now published live!', 'success');
+      showNotification('🎉 All draft changes are now published live across all devices!', 'success');
       return true;
     } catch (err: any) {
       console.error('Publish error:', err);
-      showNotification('Failed to publish changes: ' + (err.message || 'Unknown error'), 'error');
+      showNotification('Publish failed: ' + (err.message || 'Could not reach server to publish changes live.'), 'error');
       return false;
     } finally {
       setIsPublishing(false);

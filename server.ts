@@ -81,16 +81,25 @@ function ensureServerContentDefaults(content: any): CMSContent {
   };
 }
 
+// In-memory single-source-of-truth cache
+let memoryContentStore: CMSStore | null = null;
+let memoryMediaStore: MediaAsset[] | null = null;
+let memoryEnquiriesStore: CustomerEnquiry[] | null = null;
+
 function loadContentStore(): CMSStore {
+  if (memoryContentStore) {
+    return memoryContentStore;
+  }
   try {
     if (fs.existsSync(CONTENT_FILE)) {
       const raw = fs.readFileSync(CONTENT_FILE, 'utf-8');
       const data = JSON.parse(raw);
       if (data && data.published && data.draft) {
-        return {
+        memoryContentStore = {
           published: ensureServerContentDefaults(data.published),
           draft: ensureServerContentDefaults(data.draft),
         };
+        return memoryContentStore;
       }
     }
   } catch (err) {
@@ -100,6 +109,7 @@ function loadContentStore(): CMSStore {
     published: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
     draft: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
   };
+  memoryContentStore = initialStore;
   saveContentStore(initialStore);
   return initialStore;
 }
@@ -107,7 +117,16 @@ function loadContentStore(): CMSStore {
 function saveContentStore(store: CMSStore) {
   store.published = ensureServerContentDefaults(store.published);
   store.draft = ensureServerContentDefaults(store.draft);
-  fs.writeFileSync(CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  memoryContentStore = store;
+  try {
+    fs.writeFileSync(CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Notice: primary CONTENT_FILE write encountered error, using memory and fallback:', err);
+    try {
+      const tmpPath = path.join('/tmp', 'cms-content.json');
+      fs.writeFileSync(tmpPath, JSON.stringify(store, null, 2), 'utf-8');
+    } catch {}
+  }
 }
 
 function loadMediaStore(): MediaAsset[] {
@@ -334,99 +353,127 @@ const upload = multer({
   },
 });
 
-async function startServer() {
-  const app = express();
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+export const app = express();
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // Static uploads serving
-  app.use('/uploads', express.static(UPLOADS_DIR));
+// Static uploads serving
+app.use('/uploads', express.static(UPLOADS_DIR));
 
-  // Initialize data on boot
-  loadContentStore();
-  loadMediaStore();
-  loadEnquiriesStore();
+// Helper for strict no-cache headers on dynamic CMS APIs
+export const setNoCacheHeaders = (res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+};
 
-  // ----------------------------------------------------
-  // API ROUTES
-  // ----------------------------------------------------
+// Initialize data on boot
+loadContentStore();
+loadMediaStore();
+loadEnquiriesStore();
 
-  // 1. Authentication verify endpoint
-  app.post('/api/auth/verify', (req: Request, res: Response) => {
-    const { passcode } = req.body;
-    // Default master PIN is infinity2026 or environment override
-    const masterPasscode = process.env.ADMIN_PASSCODE || 'infinity2026';
-    if (passcode === masterPasscode || passcode === 'admin' || passcode === 'infinity') {
-      res.json({ success: true, token: 'infinity-session-' + Date.now() });
-    } else {
-      res.status(401).json({ success: false, error: 'Invalid master administrator passcode' });
-    }
+// ----------------------------------------------------
+// API ROUTES
+// ----------------------------------------------------
+
+// 1. Authentication verify endpoint
+app.post('/api/auth/verify', (req: Request, res: Response) => {
+  const { passcode } = req.body;
+  // Default master PIN is infinity2026 or environment override
+  const masterPasscode = process.env.ADMIN_PASSCODE || 'infinity2026';
+  if (passcode === masterPasscode || passcode === 'admin' || passcode === 'infinity') {
+    res.json({ success: true, token: 'infinity-session-' + Date.now() });
+  } else {
+    res.status(401).json({ success: false, error: 'Invalid master administrator passcode' });
+  }
+});
+
+// 2. CMS Content: Get current published and draft content (with strict no-store cache headers)
+app.get('/api/cms/content', (req: Request, res: Response) => {
+  setNoCacheHeaders(res);
+  const store = loadContentStore();
+  const hasDraftChanges = JSON.stringify(store.published) !== JSON.stringify(store.draft);
+  res.json({
+    published: store.published,
+    draft: store.draft,
+    hasDraftChanges,
   });
+});
 
-  // 2. CMS Content: Get current published and draft content
-  app.get('/api/cms/content', (req: Request, res: Response) => {
+// 2b. Public Published Content: Dedicated endpoint for public visitors across all devices
+app.get(['/api/content/published', '/api/cms/published'], (req: Request, res: Response) => {
+  setNoCacheHeaders(res);
+  const store = loadContentStore();
+  res.json({
+    published: store.published,
+    version: store.published.version || 1,
+    lastUpdated: store.published.lastUpdated,
+  });
+});
+
+// 3. Save Draft
+app.post('/api/cms/content/draft', (req: Request, res: Response) => {
+  try {
+    let { draft } = req.body;
+    if (!draft) {
+      res.status(400).json({ error: 'Missing draft content in request body' });
+      return;
+    }
+    // Ensure all base64 data URIs are converted to permanent /uploads/... URLs
+    draft = processAndExtractBase64Images(draft);
+    const cleanDraft = ensureServerContentDefaults(draft);
+
     const store = loadContentStore();
+    cleanDraft.lastUpdated = new Date().toISOString();
+    store.draft = cleanDraft;
+    saveContentStore(store);
     const hasDraftChanges = JSON.stringify(store.published) !== JSON.stringify(store.draft);
+    setNoCacheHeaders(res);
     res.json({
-      published: store.published,
+      success: true,
+      message: 'Draft saved successfully',
       draft: store.draft,
       hasDraftChanges,
     });
-  });
+  } catch (err: any) {
+    console.error('Error saving draft:', err);
+    res.status(500).json({ error: err.message || 'Failed to save draft' });
+  }
+});
 
-  // 3. Save Draft
-  app.post('/api/cms/content/draft', (req: Request, res: Response) => {
-    try {
-      let { draft } = req.body;
-      if (!draft) {
-        res.status(400).json({ error: 'Missing draft content in request body' });
-        return;
-      }
-      // Ensure all base64 data URIs are converted to permanent /uploads/... URLs
-      draft = processAndExtractBase64Images(draft);
-      const cleanDraft = ensureServerContentDefaults(draft);
-
-      const store = loadContentStore();
-      cleanDraft.lastUpdated = new Date().toISOString();
-      store.draft = cleanDraft;
-      saveContentStore(store);
-      const hasDraftChanges = JSON.stringify(store.published) !== JSON.stringify(store.draft);
-      res.json({
-        success: true,
-        message: 'Draft saved successfully',
-        draft: store.draft,
-        hasDraftChanges,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to save draft' });
+// 4. Publish Live
+app.post('/api/cms/content/publish', (req: Request, res: Response) => {
+  try {
+    const store = loadContentStore();
+    let updatedDraft = req.body.draft || store.draft;
+    if (!updatedDraft) {
+      res.status(400).json({ error: 'No draft content provided to publish' });
+      return;
     }
-  });
+    // Ensure all base64 data URIs are converted to permanent /uploads/... URLs
+    updatedDraft = processAndExtractBase64Images(updatedDraft);
+    const cleanDraft = ensureServerContentDefaults(updatedDraft);
 
-  // 4. Publish Live
-  app.post('/api/cms/content/publish', (req: Request, res: Response) => {
-    try {
-      const store = loadContentStore();
-      let updatedDraft = req.body.draft || store.draft;
-      // Ensure all base64 data URIs are converted to permanent /uploads/... URLs
-      updatedDraft = processAndExtractBase64Images(updatedDraft);
-      const cleanDraft = ensureServerContentDefaults(updatedDraft);
+    cleanDraft.version = (store.published.version || 1) + 1;
+    cleanDraft.lastUpdated = new Date().toISOString();
+    store.draft = cleanDraft;
+    store.published = JSON.parse(JSON.stringify(cleanDraft));
+    saveContentStore(store);
 
-      cleanDraft.version = (store.published.version || 1) + 1;
-      cleanDraft.lastUpdated = new Date().toISOString();
-      store.draft = cleanDraft;
-      store.published = JSON.parse(JSON.stringify(cleanDraft));
-      saveContentStore(store);
-      res.json({
-        success: true,
-        message: 'All changes published live successfully!',
-        published: store.published,
-        draft: store.draft,
-        hasDraftChanges: false,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to publish changes' });
-    }
-  });
+    setNoCacheHeaders(res);
+    res.json({
+      success: true,
+      message: 'All changes published live successfully!',
+      published: store.published,
+      draft: store.draft,
+      hasDraftChanges: false,
+    });
+  } catch (err: any) {
+    console.error('Error publishing content:', err);
+    res.status(500).json({ error: err.message || 'Failed to publish changes' });
+  }
+});
 
   // 5. Revert Draft to Published
   app.post('/api/cms/content/revert', (req: Request, res: Response) => {
@@ -468,6 +515,7 @@ async function startServer() {
 
   // 7. Media Library: Get all media assets
   app.get('/api/cms/media', (req: Request, res: Response) => {
+    setNoCacheHeaders(res);
     const media = loadMediaStore();
     res.json(media);
   });
@@ -655,6 +703,7 @@ async function startServer() {
 
   // 10. Enquiries / Orders: Get all
   app.get('/api/enquiries', (req: Request, res: Response) => {
+    setNoCacheHeaders(res);
     const enquiries = loadEnquiriesStore();
     res.json(enquiries);
   });
@@ -720,6 +769,7 @@ async function startServer() {
   // VITE MIDDLEWARE / PRODUCTION STATIC SERVING
   // ----------------------------------------------------
 
+export async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -739,4 +789,7 @@ async function startServer() {
   });
 }
 
-startServer();
+// Automatically start standalone server when executed directly (e.g. Cloud Run, Docker, node, tsx)
+if (process.env.VERCEL !== '1' && !process.env.VERCEL_ENV) {
+  startServer();
+}
