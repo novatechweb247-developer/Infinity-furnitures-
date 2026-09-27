@@ -32,8 +32,8 @@ try {
 } catch {}
 
 // ----------------------------------------------------
-// SUPABASE STORAGE INTEGRATION
-// Direct upload destination for all images from devices
+// SUPABASE STORAGE & PRODUCTION PERSISTENCE INTEGRATION
+// Single source of truth for media and CMS across domains
 // ----------------------------------------------------
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_KEY =
@@ -46,12 +46,16 @@ const SUPABASE_BUCKET =
   process.env.SUPABASE_BUCKET ||
   process.env.VITE_SUPABASE_BUCKET ||
   'infinity-media';
+const CANONICAL_DOMAIN =
+  process.env.CANONICAL_DOMAIN ||
+  process.env.VITE_CANONICAL_DOMAIN ||
+  '';
 
 let supabaseClient: any = null;
 if (SUPABASE_URL && SUPABASE_KEY) {
   try {
     supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log(`[Supabase Storage] Client connected to bucket "${SUPABASE_BUCKET}" at ${SUPABASE_URL}`);
+    console.log(`[Supabase Storage] Connected to bucket "${SUPABASE_BUCKET}" at ${SUPABASE_URL}`);
   } catch (err: any) {
     console.warn('[Supabase Storage] Initialization warning:', err.message);
   }
@@ -270,6 +274,21 @@ function saveContentStore(store: CMSStore) {
   } catch (err) {
     console.warn('Fallback TMP_CONTENT_FILE write error:', err);
   }
+
+  // 3. Sync to Supabase Storage Bucket asynchronously for cross-domain persistence
+  if (supabaseClient) {
+    try {
+      const jsonBuffer = Buffer.from(JSON.stringify(store, null, 2), 'utf-8');
+      supabaseClient.storage
+        .from(SUPABASE_BUCKET)
+        .upload('_cms_database/content_store.json', jsonBuffer, {
+          contentType: 'application/json',
+          upsert: true,
+        })
+        .then(() => console.log('[Supabase Sync] CMS Content synced to bucket'))
+        .catch((e: any) => console.warn('[Supabase Sync] Error syncing to bucket:', e.message));
+    } catch {}
+  }
 }
 
 /**
@@ -422,7 +441,7 @@ function saveEnquiriesStore(enquiries: CustomerEnquiry[]) {
   } catch {}
 }
 
-// Setup Multer for direct file uploads to storage with memory/disk strategy
+// Setup Multer for direct file uploads to storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     try {
@@ -449,10 +468,42 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max file size
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 export const app = express();
+
+// ----------------------------------------------------
+// CANONICAL DOMAIN & CORS MIDDLEWARE
+// Redirects secondary domains to the canonical domain
+// and sets universal cross-origin headers for API sync
+// ----------------------------------------------------
+app.use((req: any, res: any, next: any) => {
+  // CORS Headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma');
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
+  // Canonical Domain 308 Permanent Redirection
+  const host = (req.headers.host || '').toLowerCase();
+  if (
+    CANONICAL_DOMAIN &&
+    host &&
+    !host.includes('localhost') &&
+    !host.includes('127.0.0.1') &&
+    host !== CANONICAL_DOMAIN.toLowerCase() &&
+    (host.endsWith('.vercel.app') || host.startsWith('www.'))
+  ) {
+    const redirectUrl = `https://${CANONICAL_DOMAIN}${req.url}`;
+    return res.redirect(308, redirectUrl);
+  }
+
+  next();
+});
 
 // Middleware: URL & Path Resolver for Vercel Serverless Function rewrites & Proxies
 app.use((req: any, res: any, next: any) => {
