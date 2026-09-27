@@ -602,12 +602,17 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsSaving(true);
       const currentDraft = draftContentRef.current;
-      const sanitizedDraft = await sanitizeAndConvertBase64Images(currentDraft);
+      let sanitizedDraft = currentDraft;
+      try {
+        sanitizedDraft = await sanitizeAndConvertBase64Images(currentDraft);
+      } catch (e) {}
+
+      const safeBody = JSON.stringify({ draft: JSON.parse(JSON.stringify(sanitizedDraft)) });
 
       const res = await fetch('/api/cms/content/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: sanitizedDraft }),
+        body: safeBody,
       });
 
       if (!res.ok) {
@@ -633,12 +638,19 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsPublishing(true);
       const payloadDraft = draftContentRef.current;
-      const sanitizedDraft = await sanitizeAndConvertBase64Images(payloadDraft);
+      let sanitizedDraft = payloadDraft;
+      try {
+        sanitizedDraft = await sanitizeAndConvertBase64Images(payloadDraft);
+      } catch (e) {
+        console.warn('Base64 sanitization warning during publish:', e);
+      }
+
+      const safeBody = JSON.stringify({ draft: JSON.parse(JSON.stringify(sanitizedDraft)) });
 
       const res = await fetch('/api/cms/content/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: sanitizedDraft }),
+        body: safeBody,
       });
 
       if (!res.ok) {
