@@ -132,23 +132,24 @@ function ensureServerContentDefaults(content: any): CMSContent {
     : DEFAULT_CMS_CONTENT.heroSlides;
 
   const heroSlides = rawSlides.map((slide: any, idx: number) => {
+    const s = (slide && typeof slide === 'object') ? slide : {};
     const defaultSlide = DEFAULT_CMS_CONTENT.heroSlides[idx % DEFAULT_CMS_CONTENT.heroSlides.length] || DEFAULT_CMS_CONTENT.heroSlides[0];
     return {
-      id: slide.id || `slide-${idx + 1}`,
-      overline: slide.overline || slide.subtitle || defaultSlide.overline || 'Infinity Furnitures and Interior World Nigeria Limited',
-      title: slide.title || defaultSlide.title || 'Design your space differently.',
-      subtitle: slide.subtitle || slide.description || defaultSlide.subtitle || '',
-      description: slide.description || slide.subtitle || '',
-      tagline: slide.tagline || defaultSlide.subtitle || '',
-      primaryCtaText: slide.primaryCtaText || defaultSlide.primaryCtaText || 'Explore Collection',
-      primaryCtaAction: slide.primaryCtaAction || defaultSlide.primaryCtaAction || 'collection',
-      secondaryCtaText: slide.secondaryCtaText !== undefined ? slide.secondaryCtaText : (defaultSlide.secondaryCtaText || 'Contact Us'),
-      secondaryCtaAction: slide.secondaryCtaAction || defaultSlide.secondaryCtaAction || 'contact',
-      image: slide.image || defaultSlide.image,
-      imageAlt: slide.imageAlt || slide.title || defaultSlide.imageAlt || 'Luxury Furniture',
-      enabled: slide.enabled !== false && slide.active !== false,
-      active: slide.active !== false && slide.enabled !== false,
-      order: slide.order || idx + 1,
+      id: s.id || `slide-${idx + 1}`,
+      overline: s.overline || s.subtitle || defaultSlide.overline || 'Infinity Furnitures and Interior World Nigeria Limited',
+      title: s.title || defaultSlide.title || 'Design your space differently.',
+      subtitle: s.subtitle || s.description || defaultSlide.subtitle || '',
+      description: s.description || s.subtitle || '',
+      tagline: s.tagline || defaultSlide.subtitle || '',
+      primaryCtaText: s.primaryCtaText || defaultSlide.primaryCtaText || 'Explore Collection',
+      primaryCtaAction: s.primaryCtaAction || defaultSlide.primaryCtaAction || 'collection',
+      secondaryCtaText: s.secondaryCtaText !== undefined ? s.secondaryCtaText : (defaultSlide.secondaryCtaText || 'Contact Us'),
+      secondaryCtaAction: s.secondaryCtaAction || defaultSlide.secondaryCtaAction || 'contact',
+      image: s.image || defaultSlide.image,
+      imageAlt: s.imageAlt || s.title || defaultSlide.imageAlt || 'Luxury Furniture',
+      enabled: s.enabled !== false && s.active !== false,
+      active: s.active !== false && s.enabled !== false,
+      order: s.order || idx + 1,
     };
   });
 
@@ -720,8 +721,14 @@ bindRoute('post', ['/api/cms/content/draft', '/api/content/draft', '/draft'], as
 
 // 4. Content: Publish Draft Live
 bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish'], async (req: Request, res: Response) => {
+  const steps: string[] = [];
   try {
-    console.log('[API Publish] Received request to publish draft. Content-Type:', req.headers['content-type']);
+    steps.push('1. Received request and logged details');
+    console.log('[API Publish] --- PUBLISH TRANSACTION STARTED ---');
+    console.log('[API Publish] Content-Type:', req.headers['content-type']);
+    console.log('[API Publish] Host:', req.headers.host);
+
+    steps.push('2. Parsed request body and payload');
     let payload = req.body;
     if (Buffer.isBuffer(payload)) {
       try {
@@ -739,33 +746,105 @@ bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish
       }
     }
 
+    steps.push('3. Loaded content store from local memory/cache/file');
     const store = loadContentStore();
+    if (!store) {
+      throw new Error('Content store could not be loaded from server memory or disk.');
+    }
+
+    steps.push('4. Extracted draft payload to publish');
     let incomingDraft = payload?.draft || (payload?.brand ? payload : null);
     if (!incomingDraft || typeof incomingDraft !== 'object' || Object.keys(incomingDraft).length === 0) {
+      console.log('[API Publish] No valid incoming draft in payload. Falling back to store.draft.');
       incomingDraft = store.draft;
     }
-    console.log('[API Publish] Using draft for publish, version:', incomingDraft?.version);
 
-    // Sanitize any embedded base64 safely
+    steps.push('5. Extracted base64 images from draft');
     try {
       incomingDraft = await processAndExtractBase64Images(incomingDraft);
-      console.log('[API Publish] Base64 image extraction completed successfully.');
+      console.log('[API Publish] Base64 image extraction completed.');
     } catch (sanitizeErr: any) {
       console.warn('[API Publish] Base64 processing warning during publish:', sanitizeErr.message);
     }
 
-    const nextVersion = (store.published.version || 1) + 1;
+    steps.push('6. Calculated next version');
+    const currentVersion = store.published?.version || store.draft?.version || 1;
+    const nextVersion = Number(currentVersion) + 1;
+    console.log('[API Publish] Current version:', currentVersion, '-> Next version:', nextVersion);
+
+    steps.push('7. Ensured server content defaults and built published payload');
     const publishedPayload: CMSContent = ensureServerContentDefaults({
       ...incomingDraft,
       version: nextVersion,
       lastUpdated: new Date().toISOString(),
     });
 
+    steps.push('8. Updated local store state');
     store.published = publishedPayload;
     store.draft = JSON.parse(JSON.stringify(publishedPayload));
+
+    steps.push('9. Wrote store to primary and fallback local files');
     saveContentStore(store);
 
-    console.log('[API Publish] Successfully published version:', nextVersion);
+    // Synchronously/Awaited Supabase Sync with verbose logging so we can capture exactly what is failing!
+    steps.push('10. Synced published store to Supabase storage bucket and database');
+    let supabaseStorageResult = null;
+    let supabaseStorageError = null;
+    let supabaseDbResult = null;
+    let supabaseDbError = null;
+
+    if (supabaseClient) {
+      console.log('[API Publish] Syncing to Supabase bucket:', SUPABASE_BUCKET);
+      try {
+        const jsonBuffer = Buffer.from(JSON.stringify(store, null, 2), 'utf-8');
+        const { data, error } = await supabaseClient.storage
+          .from(SUPABASE_BUCKET)
+          .upload('_cms_database/content_store.json', jsonBuffer, {
+            contentType: 'application/json',
+            upsert: true,
+          });
+
+        if (error) {
+          console.error('[API Publish] Supabase Storage Sync Error:', error);
+          supabaseStorageError = error;
+        } else {
+          console.log('[API Publish] Supabase Storage Sync Success:', data);
+          supabaseStorageResult = data;
+        }
+      } catch (storageErr: any) {
+        console.error('[API Publish] Supabase Storage Sync Exception:', storageErr);
+        supabaseStorageError = { message: storageErr.message, stack: storageErr.stack };
+      }
+
+      console.log('[API Publish] Syncing to Supabase Table "cms_content"...');
+      try {
+        const { data, error } = await supabaseClient
+          .from('cms_content')
+          .upsert({
+            id: 'master',
+            published: store.published,
+            draft: store.draft,
+            version: store.published.version || 1,
+            last_updated: store.published.lastUpdated || new Date().toISOString(),
+          });
+
+        if (error) {
+          console.error('[API Publish] Supabase Table Sync Error:', error);
+          supabaseDbError = error;
+        } else {
+          console.log('[API Publish] Supabase Table Sync Success:', data);
+          supabaseDbResult = data;
+        }
+      } catch (dbErr: any) {
+        console.error('[API Publish] Supabase Table Sync Exception:', dbErr);
+        supabaseDbError = { message: dbErr.message, stack: dbErr.stack };
+      }
+    } else {
+      console.log('[API Publish] Supabase Client is not initialized (missing environment variables). Sync skipped.');
+    }
+
+    steps.push('11. Sent HTTP success response');
+    console.log('[API Publish] --- PUBLISH TRANSACTION COMPLETED SUCCESSFUL ---');
     res.json({
       success: true,
       message: 'Draft published live to all visitors',
@@ -774,10 +853,20 @@ bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish
       version: nextVersion,
       lastUpdated: store.published.lastUpdated,
       hasDraftChanges: false,
+      supabaseSync: {
+        storage: { success: !supabaseStorageError, result: supabaseStorageResult, error: supabaseStorageError },
+        database: { success: !supabaseDbError, result: supabaseDbResult, error: supabaseDbError },
+      }
     });
   } catch (err: any) {
     console.error('CRITICAL Error in /api/cms/content/publish:', err);
-    res.status(500).json({ error: err.message || 'Failed to publish content' });
+    console.error('Steps Completed:', steps);
+    res.status(500).json({
+      error: err.message || 'Failed to publish content',
+      stack: err.stack,
+      stepsCompleted: steps,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
