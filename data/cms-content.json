@@ -1,11 +1,11 @@
 {
   "published": {
-    "version": 4,
-    "lastUpdated": "2026-09-27T18:07:06.303Z",
+    "version": 6,
+    "lastUpdated": "2026-09-27T19:00:38.765Z",
     "brand": {
-      "businessName": "TEST-VALUE-12345",
-      "tagline": "Testing Publish Fix",
-      "description": "",
+      "businessName": "Infinity Luxury Rebuilt",
+      "tagline": "Where craftsmanship meets contemporary design.",
+      "description": "Exceptional furniture and interior solutions crafted to bring comfort, character and timeless elegance into every space.",
       "logoUrl": "/logo.png",
       "logo": "/logo.png",
       "phone1": "0806 879 5174",
@@ -483,12 +483,12 @@
     }
   },
   "draft": {
-    "version": 4,
-    "lastUpdated": "2026-09-27T18:07:06.303Z",
+    "version": 6,
+    "lastUpdated": "2026-09-27T19:00:38.765Z",
     "brand": {
-      "businessName": "TEST-VALUE-12345",
-      "tagline": "Testing Publish Fix",
-      "description": "",
+      "businessName": "Infinity Luxury Rebuilt",
+      "tagline": "Where craftsmanship meets contemporary design.",
+      "description": "Exceptional furniture and interior solutions crafted to bring comfort, character and timeless elegance into every space.",
       "logoUrl": "/logo.png",
       "logo": "/logo.png",
       "phone1": "0806 879 5174",

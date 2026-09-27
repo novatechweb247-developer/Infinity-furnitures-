@@ -911,96 +911,79 @@ bindRoute('post', ['/api/cms/content/draft', '/api/content/draft', '/draft'], as
   }
 });
 
-// 4. Content: Publish Draft Live
+// 4. Content: Clean Rebuilt Publish Pipeline Route
 bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish'], async (req: Request, res: Response) => {
   const steps: string[] = [];
   try {
-    steps.push('1. Received request and logged details');
-    console.log('[API Publish] --- PUBLISH TRANSACTION STARTED ---');
-    console.log('[API Publish] Content-Type:', req.headers['content-type']);
-    console.log('[API Publish] Host:', req.headers.host);
+    steps.push('1. Received publish request');
+    console.log('[API Publish] Rebuilt Publish pipeline started.');
 
-    steps.push('2. Parsed request body and payload');
+    steps.push('2. Parsing request body');
     let payload = req.body;
     if (Buffer.isBuffer(payload)) {
       try {
         payload = JSON.parse(payload.toString('utf-8'));
-        console.log('[API Publish] Parsed Buffer payload successfully.');
       } catch (e: any) {
-        console.warn('[API Publish] Buffer parse warning:', e.message);
+        console.warn('[API Publish] Payload buffer parse warning:', e.message);
       }
     } else if (typeof payload === 'string') {
       try {
         payload = JSON.parse(payload);
-        console.log('[API Publish] Parsed String payload successfully.');
       } catch (e: any) {
-        console.warn('[API Publish] String parse warning:', e.message);
+        console.warn('[API Publish] Payload string parse warning:', e.message);
       }
     }
 
-    steps.push('3. Loaded content store from local memory/cache/file');
+    steps.push('3. Loading draft state');
     const store = await loadContentStoreAsync();
     if (!store) {
-      throw new Error('Content store could not be loaded from server memory or disk.');
+      throw new Error('Authoritative content store could not be loaded.');
     }
 
-    steps.push('4. Extracted draft payload to publish');
+    steps.push('4. Extracting content to publish');
     let incomingDraft = payload?.draft || (payload?.brand ? payload : null);
     if (!incomingDraft || typeof incomingDraft !== 'object' || Object.keys(incomingDraft).length === 0) {
-      console.log('[API Publish] No valid incoming draft in payload. Falling back to store.draft.');
+      console.log('[API Publish] No valid incoming draft in payload. Promoting existing draft from store.');
       incomingDraft = store.draft;
     }
 
-    steps.push('5. Extracted base64 images from draft');
-    try {
-      incomingDraft = await processAndExtractBase64Images(incomingDraft);
-      console.log('[API Publish] Base64 image extraction completed.');
-    } catch (sanitizeErr: any) {
-      console.warn('[API Publish] Base64 processing warning during publish:', sanitizeErr.message);
-    }
+    steps.push('5. Running content validation & sanitation');
+    // Sanitize and ensure required defaults are present (existing media refs are preserved)
+    const validatedContent = ensureServerContentDefaults(incomingDraft);
 
-    steps.push('6. Calculated next version');
-    const currentVersion = store.published?.version || store.draft?.version || 1;
-    const nextVersion = Number(currentVersion) + 1;
-    console.log('[API Publish] Current version:', currentVersion, '-> Next version:', nextVersion);
+    steps.push('6. Advancing version and setting metadata');
+    const currentVersion = Number(store.published?.version || store.draft?.version || 1);
+    const nextVersion = currentVersion + 1;
 
-    steps.push('7. Ensured server content defaults and built published payload');
-    const publishedPayload: CMSContent = ensureServerContentDefaults({
-      ...incomingDraft,
-      version: nextVersion,
-      lastUpdated: new Date().toISOString(),
-    });
+    validatedContent.version = nextVersion;
+    validatedContent.lastUpdated = new Date().toISOString();
 
-    steps.push('8. Updated local store state');
-    store.published = publishedPayload;
-    store.draft = JSON.parse(JSON.stringify(publishedPayload));
+    steps.push('7. Writing to draft and published storage states');
+    store.published = validatedContent;
+    store.draft = JSON.parse(JSON.stringify(validatedContent)); // Sync draft with published state
 
-    steps.push('9. Wrote store to primary and fallback local files and synced to Supabase');
+    steps.push('8. Executing async/fallback storage and database persistence');
+    // Await the local file write and Supabase Storage upload
     await saveContentStoreAsync(store);
 
-    steps.push('10. Sent HTTP success response');
-    console.log('[API Publish] --- PUBLISH TRANSACTION COMPLETED SUCCESSFUL ---');
-    res.json({
+    steps.push('9. Returning success JSON response');
+    console.log(`[API Publish] Rebuilt Publish pipeline completed successfully for version ${nextVersion}!`);
+
+    res.status(200).json({
       success: true,
-      message: 'Draft published live to all visitors',
+      message: 'Content published successfully',
       published: store.published,
-      draft: store.draft,
       version: nextVersion,
-      lastUpdated: store.published.lastUpdated,
-      hasDraftChanges: false,
-      supabaseSync: {
-        storage: { success: true },
-        database: { success: true }
-      }
+      lastUpdated: store.published.lastUpdated
     });
   } catch (err: any) {
-    console.error('CRITICAL Error in /api/cms/content/publish:', err);
-    console.error('Steps Completed:', steps);
+    console.error('[API Publish Error] Rebuilt Publish pipeline failure:', err);
+    console.error('Steps completed:', steps);
     res.status(500).json({
-      error: err.message || 'Failed to publish content',
-      stack: err.stack,
-      stepsCompleted: steps,
-      timestamp: new Date().toISOString()
+      success: false,
+      error: err.message || 'An unexpected error occurred during publishing.',
+      steps: steps,
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined
     });
   }
 });
@@ -1193,11 +1176,56 @@ bindRoute('delete', ['/api/enquiries/:id', '/enquiries/:id'], (req: Request, res
   }
 });
 
-// 12. Diagnostics: Runtime environment & domain consistency logging
-bindRoute('get', ['/api/diagnostics', '/diagnostics'], (req: Request, res: Response) => {
+// 12. Diagnostics: Runtime environment & domain consistency logging with database and bucket introspection
+bindRoute('get', ['/api/diagnostics', '/diagnostics'], async (req: Request, res: Response) => {
   setNoCacheHeaders(res);
   const host = req.headers.host || '';
   const isCustomDomain = host && !host.includes('vercel.app') && !host.includes('localhost');
+  
+  let bucketsList: any[] = [];
+  let bucketsError: any = null;
+  let tablesStatus: Record<string, { exists: boolean; error?: string; count?: number }> = {};
+
+  if (supabaseClient) {
+    try {
+      const { data, error } = await supabaseClient.storage.listBuckets();
+      if (error) {
+        bucketsError = error;
+      } else {
+        bucketsList = data || [];
+      }
+    } catch (e: any) {
+      bucketsError = { message: e.message, stack: e.stack };
+    }
+
+    const testTables = ['cms_content', 'cms_data', 'content', 'settings', 'cms', 'drafts', 'published', 'site_content'];
+    for (const table of testTables) {
+      try {
+        const { data, error, count } = await supabaseClient
+          .from(table)
+          .select('*', { count: 'exact', head: true })
+          .limit(1);
+          
+        if (error) {
+          tablesStatus[table] = {
+            exists: !error.message.includes('does not exist'),
+            error: error.message,
+          };
+        } else {
+          tablesStatus[table] = {
+            exists: true,
+            count: count || 0,
+          };
+        }
+      } catch (e: any) {
+        tablesStatus[table] = {
+          exists: false,
+          error: e.message,
+        };
+      }
+    }
+  }
+
   res.json({
     success: true,
     timestamp: new Date().toISOString(),
@@ -1210,8 +1238,15 @@ bindRoute('get', ['/api/diagnostics', '/diagnostics'], (req: Request, res: Respo
     supabaseUrlConfigured: Boolean(SUPABASE_URL),
     supabaseProjectId: SUPABASE_URL ? SUPABASE_URL.split('//')[1]?.split('.')[0] || 'unknown' : 'none',
     supabaseStorageBucket: SUPABASE_BUCKET,
+    verifiedBucket,
+    verifiedTable,
     canonicalDomainConfigured: CANONICAL_DOMAIN,
     redirectStatus: 'Active permanent 308 redirect from non-canonical hosts to canonical domain',
+    supabaseIntrospection: {
+      buckets: bucketsList,
+      bucketsError,
+      tables: tablesStatus,
+    }
   });
 });
 
