@@ -110,11 +110,21 @@ function ensureServerContentDefaults(content: any): CMSContent {
   const incomingBrand = content.brand || {};
   const incomingContact = content.contact || {};
 
-  const effectivePhone1 = incomingContact.phone1 || incomingBrand.phone1 || DEFAULT_CMS_CONTENT.contact.phone1;
-  const effectivePhone2 = incomingContact.phone2 || incomingBrand.phone2 || DEFAULT_CMS_CONTENT.contact.phone2;
-  const effectiveWhatsapp = incomingContact.whatsapp || incomingBrand.whatsapp || DEFAULT_CMS_CONTENT.contact.whatsapp;
-  const effectiveEmail = incomingContact.email || incomingBrand.email || DEFAULT_CMS_CONTENT.contact.email;
-  const effectiveAddress = incomingContact.address || incomingBrand.address || DEFAULT_CMS_CONTENT.contact.address;
+  const phone = incomingContact.phone1 || incomingContact.phone || incomingBrand.phone1 || incomingBrand.phone || DEFAULT_CMS_CONTENT.contact.phone1;
+  const effectivePhone1 = phone && typeof phone === 'string' && phone.trim().length > 5 ? phone.trim() : '0806 879 5174';
+  const effectivePhone2 = '';
+  const effectiveWhatsapp = '2348068795174';
+
+  const rawEmail = incomingContact.email || incomingBrand.email || DEFAULT_CMS_CONTENT.contact.email;
+  const effectiveEmail = rawEmail && typeof rawEmail === 'string' && !rawEmail.includes('concierge@infinity') && !rawEmail.includes('example.com')
+    ? rawEmail.trim()
+    : 'Lawalcy68@gmail.com';
+
+  let rawAddress = incomingContact.address || incomingBrand.address || DEFAULT_CMS_CONTENT.contact.address;
+  if (!rawAddress || /Lagos|Abuja|Victoria Island|Lekki/i.test(rawAddress)) {
+    rawAddress = 'Jos, Plateau State';
+  }
+  const effectiveAddress = rawAddress;
   const effectiveHours = incomingContact.openingHours || incomingContact.workingHours || incomingBrand.openingHours || incomingBrand.workingHours || DEFAULT_CMS_CONTENT.contact.openingHours;
 
   const rawSlides = Array.isArray(content.heroSlides) && content.heroSlides.length > 0
@@ -427,21 +437,21 @@ function loadEnquiriesStore(): CustomerEnquiry[] {
       createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
       fullName: 'Oluwaseun Bakare',
       email: 'o.bakare@example.com',
-      phone: '0803 456 7890',
+      phone: '0806 879 5174',
       categoryInterest: 'Wardrobes & Closets',
       message: 'Hello, I would like a quote for a 4-meter master bedroom floor-to-ceiling wardrobe with fluted white oak doors.',
       status: 'New',
       channel: 'Website Form',
-      notes: 'Requested on-site measurement in Ikoyi.',
+      notes: 'Requested on-site measurement in Jos, Plateau State.',
     },
     {
       id: 'enq-2',
       createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
       fullName: 'Fatima Mohammed',
       email: 'fatima.m@luxuryhomes.ng',
-      phone: '0809 112 3344',
+      phone: '0806 879 5174',
       categoryInterest: 'Luxury Sofas',
-      message: 'Inquiring about custom 10-seater curved boucle sectional sofa in cream fabric for our private villa in Abuja.',
+      message: 'Inquiring about custom 10-seater curved boucle sectional sofa in cream fabric for our private villa in Jos, Plateau State.',
       status: 'Contacted',
       channel: 'WhatsApp Direct',
       notes: 'Sent fabric swatch samples via WhatsApp.',

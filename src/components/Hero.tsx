@@ -327,7 +327,7 @@ export function Hero({ onNavigate, onExplore, onContact }: HeroProps) {
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-[10px] text-white/40">
-                  <span className="uppercase tracking-widest">Handmade in Lagos</span>
+                  <span className="uppercase tracking-widest">Handmade in Jos, Plateau State</span>
                   <span className="text-[#c5a059] font-serif font-medium">Bespoke</span>
                 </div>
               </Card3DLayer>

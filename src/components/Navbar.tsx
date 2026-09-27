@@ -468,15 +468,13 @@ export function Navbar({ currentPage, onNavigate }: NavbarProps) {
               </AnimatePresence>
             </button>
 
-            {contact.phone1 && (
-              <a
-                href={`tel:${contact.phone1.replace(/[^0-9+]/g, '')}`}
-                className="hidden sm:inline-flex items-center gap-2 border border-white/20 hover:border-[#c5a059] hover:text-[#c5a059] hover:bg-[#c5a059]/10 text-xs uppercase tracking-[0.2em] px-5 py-2.5 rounded-full text-[#e5e2db] transition-all duration-300 shadow-xs"
-              >
-                <Phone className="w-3.5 h-3.5 text-[#c5a059]" />
-                <span>Call Us</span>
-              </a>
-            )}
+            <a
+              href={`tel:${(contact.phone1 || contact.phone || '0806 879 5174').replace(/[^0-9+]/g, '')}`}
+              className="hidden sm:inline-flex items-center gap-2 border border-white/20 hover:border-[#c5a059] hover:text-[#c5a059] hover:bg-[#c5a059]/10 text-xs uppercase tracking-[0.2em] px-5 py-2.5 rounded-full text-[#e5e2db] transition-all duration-300 shadow-xs"
+            >
+              <Phone className="w-3.5 h-3.5 text-[#c5a059]" />
+              <span>Call Us</span>
+            </a>
 
             {/* Precision Custom Interactive SVG Hamburger Menu */}
             <button
@@ -810,7 +808,7 @@ export function Navbar({ currentPage, onNavigate }: NavbarProps) {
             {/* Quick Action Bottom Buttons */}
             <div className="pt-2 border-t border-white/10 flex flex-col gap-3 shrink-0">
               <a
-                href={`tel:${contact.phone1?.replace(/[^0-9+]/g, '')}`}
+                href={`tel:${(contact.phone1 || contact.phone || '0806 879 5174').replace(/[^0-9+]/g, '')}`}
                 className="flex items-center justify-center gap-2 bg-[#c5a059] text-[#121212] uppercase tracking-[0.2em] text-xs py-3.5 px-6 rounded-full font-semibold shadow-lg active:scale-95 transition-transform"
               >
                 <Phone className="w-4 h-4" />

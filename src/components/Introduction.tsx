@@ -78,7 +78,7 @@ export function Introduction() {
 
                   <Card3DLayer depth={40}>
                     <div className="absolute bottom-6 right-6 bg-[#121212]/90 backdrop-blur-md px-4 py-2 border border-white/15 rounded-full shadow-lg text-[10px] uppercase tracking-widest text-white/70">
-                      Solid Timber &bull; Lagos
+                      Solid Timber &bull; Jos, Plateau State
                     </div>
                   </Card3DLayer>
                 </div>

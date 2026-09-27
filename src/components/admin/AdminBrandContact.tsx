@@ -41,11 +41,12 @@ export function AdminBrandContact() {
   };
 
   const handleUpdateContact = (updates: any) => {
-    const newContact = { ...contact, ...updates };
+    const newContact = { ...contact, ...updates, phone2: '' };
     const newBrand = {
       ...brand,
-      phone1: updates.phone1 ?? brand.phone1,
-      phone2: updates.phone2 ?? brand.phone2,
+      phone1: updates.phone1 ?? updates.phone ?? brand.phone1,
+      phone: updates.phone1 ?? updates.phone ?? brand.phone1,
+      phone2: '',
       whatsapp: updates.whatsapp ?? brand.whatsapp,
       email: updates.email ?? brand.email,
       address: updates.address ?? brand.address,
@@ -269,29 +270,15 @@ export function AdminBrandContact() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
-              Primary Phone
+              Direct Telephone / Mobile
             </label>
             <input
               type="text"
-              value={contact.phone1}
-              onChange={(e) => handleUpdateContact({ phone1: e.target.value })}
+              value={contact.phone1 || contact.phone || '0806 879 5174'}
+              onChange={(e) => handleUpdateContact({ phone1: e.target.value, phone: e.target.value })}
               className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
             />
           </div>
-          <div>
-            <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
-              Secondary Phone
-            </label>
-            <input
-              type="text"
-              value={contact.phone2 || ''}
-              onChange={(e) => handleUpdateContact({ phone2: e.target.value })}
-              className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
               WhatsApp Number (with country code, no +)
@@ -304,6 +291,9 @@ export function AdminBrandContact() {
               placeholder="e.g. 2348068795174"
             />
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
               Official Email
@@ -313,6 +303,18 @@ export function AdminBrandContact() {
               value={contact.email}
               onChange={(e) => handleUpdateContact({ email: e.target.value })}
               className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
+              Opening Hours
+            </label>
+            <input
+              type="text"
+              value={brand.openingHours || brand.workingHours || ''}
+              onChange={(e) => handleUpdateContact({ openingHours: e.target.value })}
+              className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
+              placeholder="e.g. Mon - Sat: 9:00 AM - 6:00 PM"
             />
           </div>
         </div>
@@ -326,19 +328,6 @@ export function AdminBrandContact() {
             value={contact.address}
             onChange={(e) => handleUpdateContact({ address: e.target.value })}
             className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
-            Opening Hours
-          </label>
-          <input
-            type="text"
-            value={brand.openingHours || brand.workingHours || ''}
-            onChange={(e) => handleUpdateContact({ openingHours: e.target.value })}
-            className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
-            placeholder="e.g. Mon - Sat: 9:00 AM - 6:00 PM"
           />
         </div>
       </div>

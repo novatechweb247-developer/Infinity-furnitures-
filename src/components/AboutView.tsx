@@ -41,7 +41,7 @@ export function AboutView() {
                     </span>
                     <p className="text-lg font-serif text-white">Hand-shaped solid timber joinery</p>
                   </div>
-                  <span className="text-xs text-white/60 tracking-wider">Lagos, Nigeria</span>
+                  <span className="text-xs text-white/60 tracking-wider">Jos, Plateau State, Nigeria</span>
                 </div>
               </Card3DLayer>
             </div>

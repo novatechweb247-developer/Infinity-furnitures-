@@ -128,18 +128,49 @@ function ensureContentDefaults(raw: any): CMSContent {
     return JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT));
   }
 
+  const incomingBrand = raw.brand || {};
+  const incomingContact = raw.contact || {};
+
+  // Clean and sanitize phone numbers (ONLY single number allowed: 0806 879 5174)
+  const phone = incomingContact.phone1 || incomingContact.phone || incomingBrand.phone1 || incomingBrand.phone || DEFAULT_CMS_CONTENT.contact.phone1;
+  const sanitizedPhone = phone && typeof phone === 'string' && phone.trim().length > 5 ? phone.trim() : '0806 879 5174';
+
+  // Sanitize email (Default to Lawalcy68@gmail.com)
+  const rawEmail = incomingContact.email || incomingBrand.email || DEFAULT_CMS_CONTENT.contact.email;
+  const sanitizedEmail = rawEmail && typeof rawEmail === 'string' && !rawEmail.includes('concierge@infinity') && !rawEmail.includes('example.com')
+    ? rawEmail.trim()
+    : 'Lawalcy68@gmail.com';
+
+  // Sanitize address (Must be Jos, Plateau State; strip Lagos/Abuja)
+  let rawAddress = incomingContact.address || incomingBrand.address || DEFAULT_CMS_CONTENT.contact.address;
+  if (!rawAddress || /Lagos|Abuja|Victoria Island|Lekki/i.test(rawAddress)) {
+    rawAddress = 'Jos, Plateau State';
+  }
+
   return {
     version: typeof raw.version === 'number' ? raw.version : 1,
     lastUpdated: raw.lastUpdated || new Date().toISOString(),
     brand: {
       ...DEFAULT_CMS_CONTENT.brand,
-      ...(raw.brand || {}),
+      ...incomingBrand,
+      phone1: sanitizedPhone,
+      phone: sanitizedPhone,
+      phone2: '',
+      whatsapp: '2348068795174',
+      email: sanitizedEmail,
+      address: rawAddress,
       logo: '/logo.png',
       logoUrl: '/logo.png',
     },
     contact: {
       ...DEFAULT_CMS_CONTENT.contact,
-      ...(raw.contact || {}),
+      ...incomingContact,
+      phone1: sanitizedPhone,
+      phone: sanitizedPhone,
+      phone2: '',
+      whatsapp: '2348068795174',
+      email: sanitizedEmail,
+      address: rawAddress,
     },
     social: {
       ...DEFAULT_CMS_CONTENT.social,

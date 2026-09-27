@@ -146,7 +146,7 @@ export function ContactPage() {
                       <div>
                         <span className="block font-medium text-white/90">Flagship Studio Location</span>
                         <span className="text-white/60 leading-relaxed">
-                          {contact.address || 'Victoria Island / Lekki Design District, Lagos, Nigeria'}
+                          {contact.address || 'Jos, Plateau State'}
                         </span>
                       </div>
                     </div>
@@ -157,17 +157,13 @@ export function ContactPage() {
                       </div>
                       <div>
                         <span className="block font-medium text-white/90">Direct Concierge Telephone</span>
-                        <div className="space-y-0.5 text-white/60">
-                          {contact.phone1 && (
-                            <a href={`tel:${contact.phone1.replace(/[^0-9+]/g, '')}`} className="block hover:text-[#c5a059] transition-colors">
-                              {contact.phone1}
-                            </a>
-                          )}
-                          {contact.phone2 && (
-                            <a href={`tel:${contact.phone2.replace(/[^0-9+]/g, '')}`} className="block hover:text-[#c5a059] transition-colors">
-                              {contact.phone2}
-                            </a>
-                          )}
+                        <div className="text-white/60">
+                          <a
+                            href={`tel:${(contact.phone1 || contact.phone || '0806 879 5174').replace(/[^0-9+]/g, '')}`}
+                            className="block hover:text-[#c5a059] transition-colors"
+                          >
+                            {contact.phone1 || contact.phone || '0806 879 5174'}
+                          </a>
                         </div>
                       </div>
                     </div>
@@ -178,8 +174,8 @@ export function ContactPage() {
                       </div>
                       <div>
                         <span className="block font-medium text-white/90">Architectural & Sales Correspondence</span>
-                        <a href={`mailto:${contact.email || 'concierge@infinityfurniture.com'}`} className="text-white/60 hover:text-[#c5a059] transition-colors">
-                          {contact.email || 'concierge@infinityfurniture.com'}
+                        <a href={`mailto:${contact.email || 'Lawalcy68@gmail.com'}`} className="text-white/60 hover:text-[#c5a059] transition-colors">
+                          {contact.email || 'Lawalcy68@gmail.com'}
                         </a>
                       </div>
                     </div>

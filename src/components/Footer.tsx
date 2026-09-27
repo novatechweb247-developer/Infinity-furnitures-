@@ -37,7 +37,7 @@ export function Footer({ onNavigate }: FooterProps) {
                 Infinity Furnitures & Interior World Nigeria Ltd
               </h3>
               <p className="text-[10px] sm:text-xs uppercase tracking-[0.28em] text-[#c5a059] font-medium mt-1.5">
-                Bespoke Hardwood Joinery & Architectural Interiors &bull; Lagos &bull; Abuja
+                Bespoke Hardwood Joinery & Architectural Interiors &bull; Jos, Plateau State
               </p>
             </button>
           </div>

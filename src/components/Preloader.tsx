@@ -147,7 +147,7 @@ export function Preloader({ onLoaded, minDuration = 1900 }: PreloaderProps) {
             transition={{ delay: 0.8, duration: 0.8 }}
             className="absolute bottom-10 text-[10px] tracking-[0.25em] uppercase text-white/30 text-center font-light"
           >
-            Handcrafted Architectural Living &bull; Lagos
+            Handcrafted Architectural Living &bull; Jos, Plateau State
           </motion.div>
         </motion.div>
       )}

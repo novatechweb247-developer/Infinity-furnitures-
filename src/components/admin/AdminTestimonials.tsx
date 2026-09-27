@@ -16,8 +16,8 @@ export function AdminTestimonials() {
     const newTestimonial: Testimonial = {
       id: `test-${Date.now()}`,
       clientName: 'New Client',
-      roleOrLocation: 'Homeowner, Ikoyi Lagos',
-      clientRole: 'Homeowner, Ikoyi Lagos',
+      roleOrLocation: 'Jos, Plateau State',
+      clientRole: 'Jos, Plateau State',
       text: 'The joinery and finish completely elevated our living room space.',
       quote: 'The joinery and finish completely elevated our living room space.',
       rating: 5,
@@ -104,7 +104,7 @@ export function AdminTestimonials() {
                       })
                     }
                     className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-2 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
-                    placeholder="e.g. Architect, Victoria Island"
+                    placeholder="e.g. Architect, Jos, Plateau State"
                   />
                 </div>
               </div>

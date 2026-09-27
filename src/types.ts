@@ -6,6 +6,7 @@ export interface BrandSettings {
   logo?: string;
   lastUpdated?: string;
   phone1: string;
+  phone?: string;
   phone2?: string;
   whatsapp: string;
   email: string;
@@ -19,6 +20,7 @@ export interface BrandSettings {
 
 export interface ContactSettings {
   phone1: string;
+  phone?: string;
   phone2?: string;
   whatsapp: string;
   email: string;

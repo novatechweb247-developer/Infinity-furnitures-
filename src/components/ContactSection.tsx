@@ -114,26 +114,21 @@ export function ContactSection() {
 
             <PopOut direction="late-pop" delay={0.1}>
               <div className="space-y-4 text-lg font-serif text-[#e5e2db]">
-                {contact.phone1 && (
-                  <a href={`tel:${contact.phone1.replace(/[^0-9+]/g, '')}`} className="block hover:text-[#c5a059] transition-colors">
-                    {contact.phone1}
-                  </a>
-                )}
-                {contact.phone2 && (
-                  <a href={`tel:${contact.phone2.replace(/[^0-9+]/g, '')}`} className="block hover:text-[#c5a059] transition-colors">
-                    {contact.phone2}
-                  </a>
-                )}
-                {contact.email && (
-                  <a href={`mailto:${contact.email}`} className="block text-sm font-sans tracking-wider text-[#b0aca3] hover:text-[#c5a059] transition-colors">
-                    {contact.email}
-                  </a>
-                )}
-                {contact.address && (
-                  <p className="text-xs font-sans text-white/50 tracking-wider pt-2 leading-relaxed">
-                    Showroom: {contact.address}
-                  </p>
-                )}
+                <a
+                  href={`tel:${(contact.phone1 || contact.phone || '0806 879 5174').replace(/[^0-9+]/g, '')}`}
+                  className="block hover:text-[#c5a059] transition-colors"
+                >
+                  {contact.phone1 || contact.phone || '0806 879 5174'}
+                </a>
+                <a
+                  href={`mailto:${contact.email || 'Lawalcy68@gmail.com'}`}
+                  className="block text-sm font-sans tracking-wider text-[#b0aca3] hover:text-[#c5a059] transition-colors"
+                >
+                  {contact.email || 'Lawalcy68@gmail.com'}
+                </a>
+                <p className="text-xs font-sans text-white/50 tracking-wider pt-2 leading-relaxed">
+                  Showroom: {contact.address || 'Jos, Plateau State'}
+                </p>
               </div>
             </PopOut>
 
