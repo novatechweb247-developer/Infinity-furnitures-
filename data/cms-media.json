@@ -1,5 +1,14 @@
 [
   {
+    "id": "med-1790521625903-600",
+    "url": "/uploads/logo-1790521625890-891858.png",
+    "name": "logo.png",
+    "size": 737773,
+    "type": "image/png",
+    "createdAt": "2026-09-27T15:07:05.903Z",
+    "category": "Test"
+  },
+  {
     "id": "med-1790505759655-558",
     "url": "/uploads/cross_device_verification_test_png-1790505759654-46128.png",
     "name": "cross_device_verification_test.png",

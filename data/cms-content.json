@@ -1,14 +1,14 @@
 {
   "published": {
-    "version": 8,
-    "lastUpdated": "2026-09-27T10:42:25.091Z",
+    "version": 2,
+    "lastUpdated": "2026-09-27T15:13:54.730Z",
     "brand": {
       "businessName": "Infinity Furnitures & Interior World Nigeria Ltd",
       "tagline": "Where craftsmanship meets contemporary design.",
       "description": "Exceptional furniture and interior solutions crafted to bring comfort, character and timeless elegance into every space.",
       "logoUrl": "/logo.png",
       "logo": "/logo.png",
-      "phone1": "0806 879 5174",
+      "phone1": "0806 879 5174 TEST",
       "phone2": "0708 809 0924",
       "whatsapp": "2348068795174",
       "email": "lawalcy@yahoo.com",
@@ -18,11 +18,8 @@
       "footerTagline": "Crafted for Timeless Elegance"
     },
     "contact": {
-      "phone1": "0806 879 5174",
-      "phone2": "0708 809 0924",
-      "whatsapp": "2348068795174",
-      "email": "lawalcy@yahoo.com",
-      "address": "Luxury Showroom & Workshop, Lagos / Abuja, Nigeria"
+      "phone1": "0806 879 5174 TEST",
+      "phone2": "0708 809 0924"
     },
     "social": {
       "instagram": "https://instagram.com/infinityfurnitures",
@@ -37,14 +34,53 @@
       {
         "id": "slide-1",
         "overline": "Infinity Furnitures and Interior World Nigeria Limited",
-        "title": "Crafting Timeless Furniture & Turnkey Interiors",
+        "title": "Design your space differently.",
         "subtitle": "Exceptional furniture and interior solutions crafted to bring comfort, character and timeless elegance into every space.",
         "primaryCtaText": "Explore Collection",
         "primaryCtaAction": "collection",
         "secondaryCtaText": "Contact Us",
         "secondaryCtaAction": "contact",
-        "image": "/uploads/image-b-executive-suite-1790419400581-486664.jpg",
-        "imageAlt": "Luxury Living Space",
+        "image": "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Luxury Living Space and Bespoke Furniture",
+        "enabled": true
+      },
+      {
+        "id": "slide-2",
+        "overline": "Artisanal Woodworking & Seating",
+        "title": "Craftsmanship that makes a statement.",
+        "subtitle": "Handcrafted seating, tailored joinery, and sculptural pieces built to elevate refined contemporary living.",
+        "primaryCtaText": "View Collection",
+        "primaryCtaAction": "collection",
+        "secondaryCtaText": "Contact Us",
+        "secondaryCtaAction": "contact",
+        "image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Bespoke Handcrafted Furniture",
+        "enabled": true
+      },
+      {
+        "id": "slide-3",
+        "overline": "Architectural Interiors",
+        "title": "We don't just furnish spaces. We transform them.",
+        "subtitle": "From spatial planning to turnkey execution, our interior design solutions harmonize architectural rigor with emotional resonance.",
+        "primaryCtaText": "Explore Interiors",
+        "primaryCtaAction": "interiors",
+        "secondaryCtaText": "Book Consultation",
+        "secondaryCtaAction": "contact",
+        "image": "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Comprehensive Architectural Interior Design",
+        "enabled": true
+      },
+      {
+        "id": "slide-4",
+        "overline": "Bespoke Joinery & Wardrobes",
+        "title": "Built with uncompromising standards.",
+        "subtitle": "Floor-to-ceiling architectural wardrobes tailored to maximize storage with unmatched elegance and generational durability.",
+        "primaryCtaText": "Discover Wardrobes",
+        "primaryCtaAction": "collection",
+        "secondaryCtaText": "Get in Touch",
+        "secondaryCtaAction": "contact",
+        "image": "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Custom Architectural Wardrobes and Joinery",
         "enabled": true
       }
     ],
@@ -427,15 +463,15 @@
     }
   },
   "draft": {
-    "version": 8,
-    "lastUpdated": "2026-09-27T10:42:25.091Z",
+    "version": 2,
+    "lastUpdated": "2026-09-27T15:13:54.730Z",
     "brand": {
       "businessName": "Infinity Furnitures & Interior World Nigeria Ltd",
       "tagline": "Where craftsmanship meets contemporary design.",
       "description": "Exceptional furniture and interior solutions crafted to bring comfort, character and timeless elegance into every space.",
       "logoUrl": "/logo.png",
       "logo": "/logo.png",
-      "phone1": "0806 879 5174",
+      "phone1": "0806 879 5174 TEST",
       "phone2": "0708 809 0924",
       "whatsapp": "2348068795174",
       "email": "lawalcy@yahoo.com",
@@ -445,11 +481,8 @@
       "footerTagline": "Crafted for Timeless Elegance"
     },
     "contact": {
-      "phone1": "0806 879 5174",
-      "phone2": "0708 809 0924",
-      "whatsapp": "2348068795174",
-      "email": "lawalcy@yahoo.com",
-      "address": "Luxury Showroom & Workshop, Lagos / Abuja, Nigeria"
+      "phone1": "0806 879 5174 TEST",
+      "phone2": "0708 809 0924"
     },
     "social": {
       "instagram": "https://instagram.com/infinityfurnitures",
@@ -464,14 +497,53 @@
       {
         "id": "slide-1",
         "overline": "Infinity Furnitures and Interior World Nigeria Limited",
-        "title": "Crafting Timeless Furniture & Turnkey Interiors",
+        "title": "Design your space differently.",
         "subtitle": "Exceptional furniture and interior solutions crafted to bring comfort, character and timeless elegance into every space.",
         "primaryCtaText": "Explore Collection",
         "primaryCtaAction": "collection",
         "secondaryCtaText": "Contact Us",
         "secondaryCtaAction": "contact",
-        "image": "/uploads/image-b-executive-suite-1790419400581-486664.jpg",
-        "imageAlt": "Luxury Living Space",
+        "image": "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Luxury Living Space and Bespoke Furniture",
+        "enabled": true
+      },
+      {
+        "id": "slide-2",
+        "overline": "Artisanal Woodworking & Seating",
+        "title": "Craftsmanship that makes a statement.",
+        "subtitle": "Handcrafted seating, tailored joinery, and sculptural pieces built to elevate refined contemporary living.",
+        "primaryCtaText": "View Collection",
+        "primaryCtaAction": "collection",
+        "secondaryCtaText": "Contact Us",
+        "secondaryCtaAction": "contact",
+        "image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Bespoke Handcrafted Furniture",
+        "enabled": true
+      },
+      {
+        "id": "slide-3",
+        "overline": "Architectural Interiors",
+        "title": "We don't just furnish spaces. We transform them.",
+        "subtitle": "From spatial planning to turnkey execution, our interior design solutions harmonize architectural rigor with emotional resonance.",
+        "primaryCtaText": "Explore Interiors",
+        "primaryCtaAction": "interiors",
+        "secondaryCtaText": "Book Consultation",
+        "secondaryCtaAction": "contact",
+        "image": "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Comprehensive Architectural Interior Design",
+        "enabled": true
+      },
+      {
+        "id": "slide-4",
+        "overline": "Bespoke Joinery & Wardrobes",
+        "title": "Built with uncompromising standards.",
+        "subtitle": "Floor-to-ceiling architectural wardrobes tailored to maximize storage with unmatched elegance and generational durability.",
+        "primaryCtaText": "Discover Wardrobes",
+        "primaryCtaAction": "collection",
+        "secondaryCtaText": "Get in Touch",
+        "secondaryCtaAction": "contact",
+        "image": "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=2000&q=85",
+        "imageAlt": "Custom Architectural Wardrobes and Joinery",
         "enabled": true
       }
     ],

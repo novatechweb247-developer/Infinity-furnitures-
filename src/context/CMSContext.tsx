@@ -129,22 +129,71 @@ export const CMS_ENQUIRY_RECEIVED_EVENT = 'infinity_enquiry_received';
 
 function ensureContentDefaults(data: any): CMSContent {
   if (!data) return JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT));
+
+  const incomingBrand = data.brand || {};
+  const incomingContact = data.contact || {};
+
+  const effectivePhone1 = incomingContact.phone1 || incomingBrand.phone1 || DEFAULT_CMS_CONTENT.contact.phone1;
+  const effectivePhone2 = incomingContact.phone2 || incomingBrand.phone2 || DEFAULT_CMS_CONTENT.contact.phone2;
+  const effectiveWhatsapp = incomingContact.whatsapp || incomingBrand.whatsapp || DEFAULT_CMS_CONTENT.contact.whatsapp;
+  const effectiveEmail = incomingContact.email || incomingBrand.email || DEFAULT_CMS_CONTENT.contact.email;
+  const effectiveAddress = incomingContact.address || incomingBrand.address || DEFAULT_CMS_CONTENT.contact.address;
+  const effectiveHours = incomingContact.openingHours || incomingContact.workingHours || incomingBrand.openingHours || incomingBrand.workingHours || DEFAULT_CMS_CONTENT.contact.openingHours;
+
+  const rawSlides = Array.isArray(data.heroSlides) && data.heroSlides.length > 0
+    ? data.heroSlides
+    : DEFAULT_CMS_CONTENT.heroSlides;
+
+  const heroSlides = rawSlides.map((slide: any, idx: number) => {
+    const defaultSlide = DEFAULT_CMS_CONTENT.heroSlides[idx % DEFAULT_CMS_CONTENT.heroSlides.length] || DEFAULT_CMS_CONTENT.heroSlides[0];
+    return {
+      id: slide.id || `slide-${idx + 1}`,
+      overline: slide.overline || slide.subtitle || defaultSlide.overline || 'Infinity Furnitures and Interior World Nigeria Limited',
+      title: slide.title || defaultSlide.title || 'Design your space differently.',
+      subtitle: slide.subtitle || slide.description || defaultSlide.subtitle || '',
+      description: slide.description || slide.subtitle || '',
+      tagline: slide.tagline || defaultSlide.subtitle || '',
+      primaryCtaText: slide.primaryCtaText || defaultSlide.primaryCtaText || 'Explore Collection',
+      primaryCtaAction: slide.primaryCtaAction || defaultSlide.primaryCtaAction || 'collection',
+      secondaryCtaText: slide.secondaryCtaText !== undefined ? slide.secondaryCtaText : (defaultSlide.secondaryCtaText || 'Contact Us'),
+      secondaryCtaAction: slide.secondaryCtaAction || defaultSlide.secondaryCtaAction || 'contact',
+      image: slide.image || defaultSlide.image,
+      imageAlt: slide.imageAlt || slide.title || defaultSlide.imageAlt || 'Luxury Furniture',
+      enabled: slide.enabled !== false && slide.active !== false,
+      active: slide.active !== false && slide.enabled !== false,
+      order: slide.order || idx + 1,
+    };
+  });
+
   return {
     ...DEFAULT_CMS_CONTENT,
     ...data,
     brand: {
       ...DEFAULT_CMS_CONTENT.brand,
-      ...(data.brand || {}),
-      logo: data.brand?.logo || data.brand?.logoUrl || DEFAULT_CMS_CONTENT.brand.logo || '/logo.png',
-      logoUrl: data.brand?.logoUrl || data.brand?.logo || DEFAULT_CMS_CONTENT.brand.logoUrl || '/logo.png',
+      ...incomingBrand,
+      businessName: incomingBrand.businessName || DEFAULT_CMS_CONTENT.brand.businessName,
+      logo: incomingBrand.logo || incomingBrand.logoUrl || DEFAULT_CMS_CONTENT.brand.logo || '/logo.png',
+      logoUrl: incomingBrand.logoUrl || incomingBrand.logo || DEFAULT_CMS_CONTENT.brand.logoUrl || '/logo.png',
+      phone1: effectivePhone1,
+      phone2: effectivePhone2,
+      whatsapp: effectiveWhatsapp,
+      email: effectiveEmail,
+      address: effectiveAddress,
+      workingHours: effectiveHours,
+      openingHours: effectiveHours,
     },
-    contact: data.contact || {
-      phone1: data.brand?.phone1 || DEFAULT_CMS_CONTENT.brand.phone1,
-      phone2: data.brand?.phone2 || DEFAULT_CMS_CONTENT.brand.phone2,
-      whatsapp: data.brand?.whatsapp || DEFAULT_CMS_CONTENT.brand.whatsapp,
-      email: data.brand?.email || DEFAULT_CMS_CONTENT.brand.email,
-      address: data.brand?.address || DEFAULT_CMS_CONTENT.brand.address,
+    contact: {
+      ...DEFAULT_CMS_CONTENT.contact,
+      ...incomingContact,
+      phone1: effectivePhone1,
+      phone2: effectivePhone2,
+      whatsapp: effectiveWhatsapp,
+      email: effectiveEmail,
+      address: effectiveAddress,
+      openingHours: effectiveHours,
+      workingHours: effectiveHours,
     },
+    social: { ...DEFAULT_CMS_CONTENT.social, ...(data.social || {}) },
     homepage: {
       ...DEFAULT_CMS_CONTENT.homepage,
       ...(data.homepage || {}),
@@ -167,15 +216,15 @@ function ensureContentDefaults(data: any): CMSContent {
       image: data.about?.image ?? data.about?.heroImage ?? DEFAULT_CMS_CONTENT.about.image,
       heroImage: data.about?.heroImage ?? data.about?.image ?? DEFAULT_CMS_CONTENT.about.image,
     },
-    heroSlides: Array.isArray(data.heroSlides) ? data.heroSlides : DEFAULT_CMS_CONTENT.heroSlides,
-    products: Array.isArray(data.products) ? data.products : DEFAULT_CMS_CONTENT.products,
-    categories: Array.isArray(data.categories) ? data.categories : DEFAULT_CMS_CONTENT.categories,
-    collections: Array.isArray(data.collections) ? data.collections : DEFAULT_CMS_CONTENT.collections,
+    heroSlides,
+    products: Array.isArray(data.products) && data.products.length > 0 ? data.products : DEFAULT_CMS_CONTENT.products,
+    categories: Array.isArray(data.categories) && data.categories.length > 0 ? data.categories : DEFAULT_CMS_CONTENT.categories,
+    collections: Array.isArray(data.collections) && data.collections.length > 0 ? data.collections : DEFAULT_CMS_CONTENT.collections,
     services: Array.isArray((data as any).services || (data as any).interiorServices)
       ? ((data as any).services || (data as any).interiorServices)
       : DEFAULT_CMS_CONTENT.services,
-    gallery: Array.isArray(data.gallery) ? data.gallery : DEFAULT_CMS_CONTENT.gallery,
-    testimonials: Array.isArray(data.testimonials) ? data.testimonials : DEFAULT_CMS_CONTENT.testimonials,
+    gallery: Array.isArray(data.gallery) && data.gallery.length > 0 ? data.gallery : DEFAULT_CMS_CONTENT.gallery,
+    testimonials: Array.isArray(data.testimonials) && data.testimonials.length > 0 ? data.testimonials : DEFAULT_CMS_CONTENT.testimonials,
   };
 }
 
@@ -186,7 +235,7 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
   const [publishedContent, setPublishedContent] = useState<CMSContent>(() => {
     try {
       const cached = localStorage.getItem('infinity_cms_published') || localStorage.getItem(LOCAL_STORAGE_KEY_PUBLISHED);
-      if (cached) return JSON.parse(cached);
+      if (cached) return ensureContentDefaults(JSON.parse(cached));
     } catch (e) {
       console.warn('Error parsing cached published content:', e);
     }
@@ -196,9 +245,9 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
   const [draftContent, setDraftContent] = useState<CMSContent>(() => {
     try {
       const cachedDraft = localStorage.getItem('infinity_cms_draft') || localStorage.getItem(LOCAL_STORAGE_KEY_DRAFT);
-      if (cachedDraft) return JSON.parse(cachedDraft);
+      if (cachedDraft) return ensureContentDefaults(JSON.parse(cachedDraft));
       const cachedPublished = localStorage.getItem('infinity_cms_published') || localStorage.getItem(LOCAL_STORAGE_KEY_PUBLISHED);
-      if (cachedPublished) return JSON.parse(cachedPublished);
+      if (cachedPublished) return ensureContentDefaults(JSON.parse(cachedPublished));
     } catch (e) {
       console.warn('Error parsing cached draft content:', e);
     }
@@ -280,10 +329,15 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
 
   const hasFetchedFromServerRef = useRef<boolean>(false);
 
-  // Compute active content for public components
+  // Compute active content for public components:
+  // ONLY authenticated admins in explicit preview mode see draftContent.
+  // ALL OTHER DEVICES & VISITORS unconditionally receive authoritative publishedContent.
   const activeContent = useMemo(() => {
-    return previewDraftOnPublicSite ? draftContent : publishedContent;
-  }, [previewDraftOnPublicSite, draftContent, publishedContent]);
+    if (previewDraftOnPublicSite && isAuthenticated) {
+      return draftContent;
+    }
+    return publishedContent;
+  }, [previewDraftOnPublicSite, isAuthenticated, draftContent, publishedContent]);
 
   // Sync draft state directly to storage whenever draftContent changes (only after server content has loaded)
   useEffect(() => {
@@ -487,11 +541,27 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Cross-tab and global publishing event synchronization
+  // Cross-tab and global publishing event synchronization + Periodic cross-device polling
   useEffect(() => {
     fetchContent();
     loadMedia();
     loadEnquiries();
+
+    // 1. Periodic background sync every 8 seconds ensures Phone B automatically receives Phone A's published changes
+    const pollInterval = setInterval(() => {
+      fetchContent();
+    }, 8000);
+
+    // 2. Immediate sync when user switches tabs or focuses the browser window
+    const handleFocus = () => {
+      fetchContent();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchContent();
+      }
+    };
 
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === LOCAL_STORAGE_KEY_PUBLISHED && e.newValue) {
@@ -520,10 +590,15 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener(CMS_PUBLISHED_EVENT, handlePublishedEvent);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      clearInterval(pollInterval);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener(CMS_PUBLISHED_EVENT, handlePublishedEvent);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [fetchContent, loadMedia, loadEnquiries]);
 

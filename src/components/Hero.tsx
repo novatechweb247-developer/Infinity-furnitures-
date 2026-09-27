@@ -234,7 +234,7 @@ export function Hero({ onNavigate, onExplore, onContact }: HeroProps) {
               transition={{ delay: 0.1, duration: 0.75, ease: [0.4, 0, 0.2, 1] }}
               className="inline-block text-xs uppercase tracking-[0.3em] text-[#c5a059] mb-4 font-semibold drop-shadow-sm"
             >
-              {activeSlide.overline}
+              {activeSlide.overline || activeSlide.tagline || 'Infinity Furnitures and Interior World Nigeria Limited'}
             </motion.span>
 
             {/* Slide Title with gentle depth scale */}
@@ -254,7 +254,7 @@ export function Hero({ onNavigate, onExplore, onContact }: HeroProps) {
               transition={{ delay: 0.3, duration: 0.9, ease: [0.4, 0, 0.2, 1] }}
               className="text-base sm:text-lg text-[#dedbd3] font-light max-w-xl leading-relaxed mb-8 sm:mb-10 drop-shadow-[0_1px_6px_rgba(0,0,0,0.65)]"
             >
-              {activeSlide.subtitle}
+              {activeSlide.subtitle || activeSlide.description}
             </motion.p>
 
             {/* Call to Actions - smooth fluid entrance */}

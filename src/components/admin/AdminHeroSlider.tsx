@@ -2,26 +2,45 @@ import React, { useState } from 'react';
 import { useCMS } from '../../context/CMSContext';
 import { HeroSlide } from '../../types';
 import { ImageField } from './ImageField';
-import { Plus, Trash2, ChevronUp, ChevronDown, Eye, Sliders } from 'lucide-react';
+import { Plus, Trash2, ChevronUp, ChevronDown, UploadCloud, CheckCircle2, Sliders } from 'lucide-react';
 
 export function AdminHeroSlider() {
-  const { draftContent, saveHeroSlides } = useCMS();
+  const { draftContent, saveHeroSlides, publishDraft, isPublishing, showNotification } = useCMS();
   const slides = draftContent.heroSlides;
   const [editingId, setEditingId] = useState<string | null>(slides[0]?.id || null);
+  const [isPublishingLocal, setIsPublishingLocal] = useState(false);
+  const [justPublished, setJustPublished] = useState(false);
 
   const handleUpdateSlide = (id: string, updates: Partial<HeroSlide>) => {
     const updated = slides.map((s) => (s.id === id ? { ...s, ...updates } : s));
     saveHeroSlides(updated);
   };
 
+  const handlePublishLiveNow = async () => {
+    setIsPublishingLocal(true);
+    const success = await publishDraft();
+    setIsPublishingLocal(false);
+    if (success) {
+      setJustPublished(true);
+      showNotification('✅ Hero slides published live across all devices!', 'success');
+      setTimeout(() => setJustPublished(false), 4000);
+    }
+  };
+
   const handleAddSlide = () => {
     const newSlide: HeroSlide = {
       id: `hero-${Date.now()}`,
-      title: 'New Headline Statement',
-      subtitle: 'Luxury Collection',
+      overline: 'Infinity Furnitures & Interior World',
+      title: 'Bespoke Luxury Living',
+      subtitle: 'Exceptional furniture and interior solutions crafted with timeless elegance.',
+      description: 'Exceptional furniture and interior solutions crafted with timeless elegance.',
       tagline: 'Custom hand-crafted furniture built for timeless architecture.',
-      description: 'Handcrafted solid joinery and refined contemporary aesthetics.',
-      image: '',
+      primaryCtaText: 'Explore Collection',
+      primaryCtaAction: 'collection',
+      secondaryCtaText: 'Contact Us',
+      secondaryCtaAction: 'contact',
+      image: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=2000&q=85',
+      enabled: true,
       active: true,
       order: slides.length + 1,
     };
@@ -64,17 +83,47 @@ export function AdminHeroSlider() {
           </span>
           <h2 className="text-2xl font-serif text-[#1a1a1a]">Hero Background Slides</h2>
           <p className="text-xs text-neutral-500 font-light mt-1">
-            Configure the full-screen carousel slides shown at the top of the homepage.
+            Configure full-screen carousel slides. Click "Publish Changes Live" to update the live public site on all devices.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleAddSlide}
-          className="inline-flex items-center gap-2 bg-[#b89753] hover:bg-[#a38442] text-white px-5 py-2.5 rounded-full text-xs uppercase tracking-[0.15em] font-medium shadow-xs transition-all cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Slide</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleAddSlide}
+            className="inline-flex items-center gap-2 bg-neutral-100 hover:bg-neutral-200 text-[#1a1a1a] px-4 py-2.5 rounded-full text-xs uppercase tracking-[0.12em] font-medium shadow-xs transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Slide</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePublishLiveNow}
+            disabled={isPublishing || isPublishingLocal}
+            className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-xs uppercase tracking-[0.12em] font-medium transition-all shadow-md cursor-pointer ${
+              justPublished
+                ? 'bg-emerald-600 text-white'
+                : 'bg-[#b89753] hover:bg-[#a68645] text-white active:scale-95'
+            } disabled:opacity-50`}
+          >
+            {justPublished ? (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Published Live!</span>
+              </>
+            ) : isPublishing || isPublishingLocal ? (
+              <>
+                <UploadCloud className="w-4 h-4 animate-bounce" />
+                <span>Publishing...</span>
+              </>
+            ) : (
+              <>
+                <UploadCloud className="w-4 h-4" />
+                <span>Publish Changes Live</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -105,7 +154,7 @@ export function AdminHeroSlider() {
                   </div>
                   <div className="min-w-0">
                     <h4 className="text-xs font-semibold text-[#1a1a1a] truncate">{slide.title}</h4>
-                    <p className="text-[11px] text-neutral-400 truncate">{slide.subtitle}</p>
+                    <p className="text-[11px] text-neutral-400 truncate">{slide.overline || slide.subtitle}</p>
                   </div>
                 </div>
 
@@ -147,8 +196,8 @@ export function AdminHeroSlider() {
               <label className="flex items-center gap-2 cursor-pointer text-xs uppercase tracking-wider text-neutral-600 font-medium">
                 <input
                   type="checkbox"
-                  checked={activeEditingSlide.active !== false}
-                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { active: e.target.checked })}
+                  checked={activeEditingSlide.enabled !== false && activeEditingSlide.active !== false}
+                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { enabled: e.target.checked, active: e.target.checked })}
                   className="rounded text-[#b89753] focus:ring-[#b89753]"
                 />
                 <span>Active on live site</span>
@@ -159,61 +208,87 @@ export function AdminHeroSlider() {
               label="Background Image (Ultra HD)"
               value={activeEditingSlide.image}
               onChange={(url) => handleUpdateSlide(activeEditingSlide.id, { image: url })}
-              helperText="High-resolution architecture or furniture photography (minimum 1920x1080)."
+              helperText="High-resolution architecture or furniture photography (stored permanently in media storage bucket)."
               category="Hero Slides"
             />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
-                  Pre-Heading / Tag
+                  Pre-Heading / Tag (Overline)
                 </label>
                 <input
                   type="text"
-                  value={activeEditingSlide.subtitle || ''}
-                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { subtitle: e.target.value })}
+                  value={activeEditingSlide.overline || activeEditingSlide.tagline || ''}
+                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { overline: e.target.value, tagline: e.target.value })}
                   className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
                   placeholder="e.g. Master Bedroom"
                 />
               </div>
               <div>
                 <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
-                  Tagline
+                  Main Headline
                 </label>
                 <input
                   type="text"
-                  value={activeEditingSlide.tagline || ''}
-                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { tagline: e.target.value })}
-                  className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
-                  placeholder="e.g. Custom Wardrobe & Joinery"
+                  value={activeEditingSlide.title}
+                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { title: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-sm font-serif text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
+                  placeholder="e.g. Design your space differently."
                 />
               </div>
             </div>
 
             <div>
               <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
-                Main Title
-              </label>
-              <input
-                type="text"
-                value={activeEditingSlide.title}
-                onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { title: e.target.value })}
-                className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-sm font-serif text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
-                placeholder="e.g. Infinity Furnitures and Interior World Nigeria Limited"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
-                Description / Paragraph
+                Narrative Description / Subtitle
               </label>
               <textarea
                 rows={3}
-                value={activeEditingSlide.description || ''}
-                onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { description: e.target.value })}
+                value={activeEditingSlide.subtitle || activeEditingSlide.description || ''}
+                onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { subtitle: e.target.value, description: e.target.value })}
                 className="w-full bg-neutral-50 border border-neutral-200 rounded-xl p-4 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753] resize-none"
-                placeholder="Brief narrative text shown over the slide."
+                placeholder="Narrative statement displayed prominently below the main title."
               />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
+                  Primary Button Text
+                </label>
+                <input
+                  type="text"
+                  value={activeEditingSlide.primaryCtaText || ''}
+                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { primaryCtaText: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
+                  placeholder="e.g. Explore Collection"
+                />
+              </div>
+              <div>
+                <label className="block text-xs uppercase tracking-wider font-semibold text-neutral-700 mb-2">
+                  Secondary Button Text
+                </label>
+                <input
+                  type="text"
+                  value={activeEditingSlide.secondaryCtaText || ''}
+                  onChange={(e) => handleUpdateSlide(activeEditingSlide.id, { secondaryCtaText: e.target.value })}
+                  className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#b89753]"
+                  placeholder="e.g. Contact Us"
+                />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-neutral-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={handlePublishLiveNow}
+                disabled={isPublishing || isPublishingLocal}
+                className="inline-flex items-center gap-2 bg-[#b89753] hover:bg-[#a68645] text-white px-6 py-3 rounded-xl text-xs uppercase tracking-[0.12em] font-medium shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>{isPublishing || isPublishingLocal ? 'Publishing...' : 'Publish Hero Slides Live'}</span>
+              </button>
             </div>
           </div>
         )}

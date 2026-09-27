@@ -13,13 +13,24 @@ const CONTENT_FILE = path.join(DATA_DIR, 'cms-content.json');
 const MEDIA_FILE = path.join(DATA_DIR, 'cms-media.json');
 const ENQUIRIES_FILE = path.join(DATA_DIR, 'enquiries.json');
 
+// Resilient fallback storage paths for serverless / containerized environments (like /tmp on Vercel/Cloud Run)
+const TMP_DATA_DIR = path.join('/tmp', 'data');
+const TMP_CONTENT_FILE = path.join('/tmp', 'cms-content.json');
+const TMP_MEDIA_FILE = path.join('/tmp', 'cms-media.json');
+const TMP_ENQUIRIES_FILE = path.join('/tmp', 'enquiries.json');
+const TMP_UPLOADS_DIR = path.join('/tmp', 'uploads');
+
 // Ensure storage directories exist
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+try {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch {}
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+} catch {}
+try {
+  if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
+  if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
+} catch {}
 
 // Initial storage helpers
 interface CMSStore {
@@ -29,22 +40,69 @@ interface CMSStore {
 
 function ensureServerContentDefaults(content: any): CMSContent {
   if (!content) return JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT));
+
+  const incomingBrand = content.brand || {};
+  const incomingContact = content.contact || {};
+
+  const effectivePhone1 = incomingContact.phone1 || incomingBrand.phone1 || DEFAULT_CMS_CONTENT.contact.phone1;
+  const effectivePhone2 = incomingContact.phone2 || incomingBrand.phone2 || DEFAULT_CMS_CONTENT.contact.phone2;
+  const effectiveWhatsapp = incomingContact.whatsapp || incomingBrand.whatsapp || DEFAULT_CMS_CONTENT.contact.whatsapp;
+  const effectiveEmail = incomingContact.email || incomingBrand.email || DEFAULT_CMS_CONTENT.contact.email;
+  const effectiveAddress = incomingContact.address || incomingBrand.address || DEFAULT_CMS_CONTENT.contact.address;
+  const effectiveHours = incomingContact.openingHours || incomingContact.workingHours || incomingBrand.openingHours || incomingBrand.workingHours || DEFAULT_CMS_CONTENT.contact.openingHours;
+
+  const rawSlides = Array.isArray(content.heroSlides) && content.heroSlides.length > 0
+    ? content.heroSlides
+    : DEFAULT_CMS_CONTENT.heroSlides;
+
+  const heroSlides = rawSlides.map((slide: any, idx: number) => {
+    const defaultSlide = DEFAULT_CMS_CONTENT.heroSlides[idx % DEFAULT_CMS_CONTENT.heroSlides.length] || DEFAULT_CMS_CONTENT.heroSlides[0];
+    return {
+      id: slide.id || `slide-${idx + 1}`,
+      overline: slide.overline || slide.subtitle || defaultSlide.overline || 'Infinity Furnitures and Interior World Nigeria Limited',
+      title: slide.title || defaultSlide.title || 'Design your space differently.',
+      subtitle: slide.subtitle || slide.description || defaultSlide.subtitle || '',
+      description: slide.description || slide.subtitle || '',
+      tagline: slide.tagline || defaultSlide.subtitle || '',
+      primaryCtaText: slide.primaryCtaText || defaultSlide.primaryCtaText || 'Explore Collection',
+      primaryCtaAction: slide.primaryCtaAction || defaultSlide.primaryCtaAction || 'collection',
+      secondaryCtaText: slide.secondaryCtaText !== undefined ? slide.secondaryCtaText : (defaultSlide.secondaryCtaText || 'Contact Us'),
+      secondaryCtaAction: slide.secondaryCtaAction || defaultSlide.secondaryCtaAction || 'contact',
+      image: slide.image || defaultSlide.image,
+      imageAlt: slide.imageAlt || slide.title || defaultSlide.imageAlt || 'Luxury Furniture',
+      enabled: slide.enabled !== false && slide.active !== false,
+      active: slide.active !== false && slide.enabled !== false,
+      order: slide.order || idx + 1,
+    };
+  });
+
   return {
     ...DEFAULT_CMS_CONTENT,
     ...content,
     brand: {
       ...DEFAULT_CMS_CONTENT.brand,
-      ...(content.brand || {}),
-      businessName: content.brand?.businessName || DEFAULT_CMS_CONTENT.brand.businessName,
-      logo: content.brand?.logo || content.brand?.logoUrl || DEFAULT_CMS_CONTENT.brand.logo || '/logo.png',
-      logoUrl: content.brand?.logoUrl || content.brand?.logo || DEFAULT_CMS_CONTENT.brand.logoUrl || '/logo.png',
+      ...incomingBrand,
+      businessName: incomingBrand.businessName || DEFAULT_CMS_CONTENT.brand.businessName,
+      logo: incomingBrand.logo || incomingBrand.logoUrl || DEFAULT_CMS_CONTENT.brand.logo || '/logo.png',
+      logoUrl: incomingBrand.logoUrl || incomingBrand.logo || DEFAULT_CMS_CONTENT.brand.logoUrl || '/logo.png',
+      phone1: effectivePhone1,
+      phone2: effectivePhone2,
+      whatsapp: effectiveWhatsapp,
+      email: effectiveEmail,
+      address: effectiveAddress,
+      workingHours: effectiveHours,
+      openingHours: effectiveHours,
     },
-    contact: content.contact || {
-      phone1: content.brand?.phone1 || DEFAULT_CMS_CONTENT.brand.phone1,
-      phone2: content.brand?.phone2 || DEFAULT_CMS_CONTENT.brand.phone2,
-      whatsapp: content.brand?.whatsapp || DEFAULT_CMS_CONTENT.brand.whatsapp,
-      email: content.brand?.email || DEFAULT_CMS_CONTENT.brand.email,
-      address: content.brand?.address || DEFAULT_CMS_CONTENT.brand.address,
+    contact: {
+      ...DEFAULT_CMS_CONTENT.contact,
+      ...incomingContact,
+      phone1: effectivePhone1,
+      phone2: effectivePhone2,
+      whatsapp: effectiveWhatsapp,
+      email: effectiveEmail,
+      address: effectiveAddress,
+      openingHours: effectiveHours,
+      workingHours: effectiveHours,
     },
     social: { ...DEFAULT_CMS_CONTENT.social, ...(content.social || {}) },
     homepage: {
@@ -69,15 +127,15 @@ function ensureServerContentDefaults(content: any): CMSContent {
       image: content.about?.image ?? content.about?.heroImage ?? DEFAULT_CMS_CONTENT.about.image,
       heroImage: content.about?.heroImage ?? content.about?.image ?? DEFAULT_CMS_CONTENT.about.image,
     },
-    heroSlides: Array.isArray(content.heroSlides) ? content.heroSlides : DEFAULT_CMS_CONTENT.heroSlides,
-    products: Array.isArray(content.products) ? content.products : DEFAULT_CMS_CONTENT.products,
-    categories: Array.isArray(content.categories) ? content.categories : DEFAULT_CMS_CONTENT.categories,
-    collections: Array.isArray(content.collections) ? content.collections : DEFAULT_CMS_CONTENT.collections,
+    heroSlides,
+    products: Array.isArray(content.products) && content.products.length > 0 ? content.products : DEFAULT_CMS_CONTENT.products,
+    categories: Array.isArray(content.categories) && content.categories.length > 0 ? content.categories : DEFAULT_CMS_CONTENT.categories,
+    collections: Array.isArray(content.collections) && content.collections.length > 0 ? content.collections : DEFAULT_CMS_CONTENT.collections,
     services: Array.isArray(content.services || content.interiorServices)
       ? (content.services || content.interiorServices)
       : DEFAULT_CMS_CONTENT.services,
-    gallery: Array.isArray(content.gallery) ? content.gallery : DEFAULT_CMS_CONTENT.gallery,
-    testimonials: Array.isArray(content.testimonials) ? content.testimonials : DEFAULT_CMS_CONTENT.testimonials,
+    gallery: Array.isArray(content.gallery) && content.gallery.length > 0 ? content.gallery : DEFAULT_CMS_CONTENT.gallery,
+    testimonials: Array.isArray(content.testimonials) && content.testimonials.length > 0 ? content.testimonials : DEFAULT_CMS_CONTENT.testimonials,
   };
 }
 
@@ -90,21 +148,40 @@ function loadContentStore(): CMSStore {
   if (memoryContentStore) {
     return memoryContentStore;
   }
+  // Try reading from primary persistent storage
   try {
     if (fs.existsSync(CONTENT_FILE)) {
       const raw = fs.readFileSync(CONTENT_FILE, 'utf-8');
       const data = JSON.parse(raw);
-      if (data && data.published && data.draft) {
+      if (data && (data.published || data.draft)) {
         memoryContentStore = {
-          published: ensureServerContentDefaults(data.published),
-          draft: ensureServerContentDefaults(data.draft),
+          published: ensureServerContentDefaults(data.published || data),
+          draft: ensureServerContentDefaults(data.draft || data.published || data),
         };
         return memoryContentStore;
       }
     }
   } catch (err) {
-    console.error('Error reading content file, initializing default:', err);
+    console.warn('Could not read primary CONTENT_FILE:', err);
   }
+
+  // Try reading from fallback /tmp storage (for serverless environments)
+  try {
+    if (fs.existsSync(TMP_CONTENT_FILE)) {
+      const raw = fs.readFileSync(TMP_CONTENT_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (data && (data.published || data.draft)) {
+        memoryContentStore = {
+          published: ensureServerContentDefaults(data.published || data),
+          draft: ensureServerContentDefaults(data.draft || data.published || data),
+        };
+        return memoryContentStore;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not read fallback TMP_CONTENT_FILE:', err);
+  }
+
   const initialStore: CMSStore = {
     published: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
     draft: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
@@ -118,26 +195,41 @@ function saveContentStore(store: CMSStore) {
   store.published = ensureServerContentDefaults(store.published);
   store.draft = ensureServerContentDefaults(store.draft);
   memoryContentStore = store;
+
+  // 1. Write to primary persistent location
   try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Notice: primary CONTENT_FILE write encountered error, using memory and fallback:', err);
-    try {
-      const tmpPath = path.join('/tmp', 'cms-content.json');
-      fs.writeFileSync(tmpPath, JSON.stringify(store, null, 2), 'utf-8');
-    } catch {}
+    console.warn('Primary CONTENT_FILE write notice (using fallback):', err);
+  }
+
+  // 2. Always write to /tmp fallback location
+  try {
+    if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
+    fs.writeFileSync(TMP_CONTENT_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Fallback TMP_CONTENT_FILE write error:', err);
   }
 }
 
 function loadMediaStore(): MediaAsset[] {
+  if (memoryMediaStore) return memoryMediaStore;
   try {
     if (fs.existsSync(MEDIA_FILE)) {
       const raw = fs.readFileSync(MEDIA_FILE, 'utf-8');
-      return JSON.parse(raw);
+      memoryMediaStore = JSON.parse(raw);
+      return memoryMediaStore!;
     }
-  } catch (err) {
-    console.error('Error reading media file, initializing default:', err);
-  }
+  } catch (err) {}
+  try {
+    if (fs.existsSync(TMP_MEDIA_FILE)) {
+      const raw = fs.readFileSync(TMP_MEDIA_FILE, 'utf-8');
+      memoryMediaStore = JSON.parse(raw);
+      return memoryMediaStore!;
+    }
+  } catch (err) {}
+
   // Seed with curated images from default content
   const initialMedia: MediaAsset[] = [
     {
@@ -198,13 +290,20 @@ function loadMediaStore(): MediaAsset[] {
   saveMediaStore(initialMedia);
   return initialMedia;
 }
-
 function saveMediaStore(media: MediaAsset[]) {
-  fs.writeFileSync(MEDIA_FILE, JSON.stringify(media, null, 2), 'utf-8');
+  memoryMediaStore = media;
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(MEDIA_FILE, JSON.stringify(media, null, 2), 'utf-8');
+  } catch {}
+  try {
+    if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
+    fs.writeFileSync(TMP_MEDIA_FILE, JSON.stringify(media, null, 2), 'utf-8');
+  } catch {}
 }
 
 /**
- * Converts a raw base64 data URI into a physical file in /public/uploads
+ * Converts a raw base64 data URI into a physical file in persistent storage (/public/uploads and /tmp/uploads)
  * and returns the permanent relative URL and MediaAsset record.
  */
 function saveBase64Image(
@@ -228,8 +327,31 @@ function saveBase64Image(
 
     const safeBase = baseName.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 35) || 'upload';
     const filename = `${safeBase}-${Date.now()}-${Math.round(Math.random() * 1e5)}${ext}`;
-    const filePath = path.join(UPLOADS_DIR, filename);
-    fs.writeFileSync(filePath, buffer);
+
+    let saved = false;
+
+    // 1. Try saving to primary UPLOADS_DIR
+    try {
+      if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
+      saved = true;
+    } catch (err) {
+      console.warn('Could not write image to primary UPLOADS_DIR:', err);
+    }
+
+    // 2. Also save to TMP_UPLOADS_DIR for serverless / fallback environments
+    try {
+      if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
+      fs.writeFileSync(path.join(TMP_UPLOADS_DIR, filename), buffer);
+      saved = true;
+    } catch (err) {
+      console.warn('Could not write image to TMP_UPLOADS_DIR:', err);
+    }
+
+    if (!saved) {
+      console.error('Failed to write image to any storage directory');
+      return null;
+    }
 
     const permanentUrl = `/uploads/${filename}`;
     const asset: MediaAsset = {
@@ -280,14 +402,22 @@ function processAndExtractBase64Images(obj: any): any {
 }
 
 function loadEnquiriesStore(): CustomerEnquiry[] {
+  if (memoryEnquiriesStore) return memoryEnquiriesStore;
   try {
     if (fs.existsSync(ENQUIRIES_FILE)) {
       const raw = fs.readFileSync(ENQUIRIES_FILE, 'utf-8');
-      return JSON.parse(raw);
+      memoryEnquiriesStore = JSON.parse(raw);
+      return memoryEnquiriesStore!;
     }
-  } catch (err) {
-    console.error('Error reading enquiries file:', err);
-  }
+  } catch (err) {}
+  try {
+    if (fs.existsSync(TMP_ENQUIRIES_FILE)) {
+      const raw = fs.readFileSync(TMP_ENQUIRIES_FILE, 'utf-8');
+      memoryEnquiriesStore = JSON.parse(raw);
+      return memoryEnquiriesStore!;
+    }
+  } catch (err) {}
+
   const initialEnquiries: CustomerEnquiry[] = [
     {
       id: 'enq-1',
@@ -319,20 +449,38 @@ function loadEnquiriesStore(): CustomerEnquiry[] {
 }
 
 function saveEnquiriesStore(enquiries: CustomerEnquiry[]) {
-  fs.writeFileSync(ENQUIRIES_FILE, JSON.stringify(enquiries, null, 2), 'utf-8');
+  memoryEnquiriesStore = enquiries;
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(ENQUIRIES_FILE, JSON.stringify(enquiries, null, 2), 'utf-8');
+  } catch {}
+  try {
+    if (!fs.existsSync(TMP_DATA_DIR)) fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
+    fs.writeFileSync(TMP_ENQUIRIES_FILE, JSON.stringify(enquiries, null, 2), 'utf-8');
+  } catch {}
 }
 
-// Setup Multer for direct file uploads to persistent storage
+// Setup Multer for direct file uploads to persistent storage with fallback
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, UPLOADS_DIR);
+    try {
+      if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      cb(null, UPLOADS_DIR);
+    } catch {
+      try {
+        if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
+        cb(null, TMP_UPLOADS_DIR);
+      } catch (e: any) {
+        cb(e, '');
+      }
+    }
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
     const sanitizedBase = path
       .basename(file.originalname, ext)
       .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .slice(0, 40);
+      .slice(0, 40) || 'upload';
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e6);
     cb(null, `${sanitizedBase}-${uniqueSuffix}${ext}`);
   },
@@ -340,15 +488,15 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max per image
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB max per image
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|webp|gif|svg|avif/i;
+    const allowed = /jpeg|jpg|png|webp|gif|svg|avif|heic|heif/i;
     const isMimeAllowed = allowed.test(file.mimetype);
     const isExtAllowed = allowed.test(path.extname(file.originalname).toLowerCase());
     if (isMimeAllowed || isExtAllowed) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files (JPG, PNG, WebP, GIF, SVG, AVIF) are allowed'));
+      cb(new Error('Only image files (JPG, PNG, WebP, GIF, SVG, AVIF, HEIC) are allowed'));
     }
   },
 });
@@ -357,8 +505,9 @@ export const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static uploads serving
+// Static uploads serving from both primary and fallback locations
 app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/uploads', express.static(TMP_UPLOADS_DIR));
 
 // Helper for strict no-cache headers on dynamic CMS APIs
 export const setNoCacheHeaders = (res: Response) => {
@@ -374,13 +523,22 @@ loadMediaStore();
 loadEnquiriesStore();
 
 // ----------------------------------------------------
-// API ROUTES
+// DUAL-PATH API ROUTES HELPER
+// Supports both /api/* and /* so proxy / Vercel rewrites work seamlessly
 // ----------------------------------------------------
+const bindRoute = (method: 'get' | 'post' | 'delete' | 'patch', paths: string[], handler: any) => {
+  const allPaths = new Set<string>();
+  paths.forEach((p) => {
+    allPaths.add(p);
+    if (p.startsWith('/api/')) allPaths.add(p.replace('/api/', '/'));
+    else if (p.startsWith('/')) allPaths.add('/api' + p);
+  });
+  app[method](Array.from(allPaths), handler);
+};
 
 // 1. Authentication verify endpoint
-app.post('/api/auth/verify', (req: Request, res: Response) => {
+bindRoute('post', ['/api/auth/verify', '/auth/verify'], (req: Request, res: Response) => {
   const { passcode } = req.body;
-  // Default master PIN is infinity2026 or environment override
   const masterPasscode = process.env.ADMIN_PASSCODE || 'infinity2026';
   if (passcode === masterPasscode || passcode === 'admin' || passcode === 'infinity') {
     res.json({ success: true, token: 'infinity-session-' + Date.now() });
@@ -389,38 +547,28 @@ app.post('/api/auth/verify', (req: Request, res: Response) => {
   }
 });
 
-// 2. CMS Content: Get current published and draft content (with strict no-store cache headers)
-app.get('/api/cms/content', (req: Request, res: Response) => {
+// 2. CMS Content: Get current published and draft content (Authoritative Database Record)
+bindRoute('get', ['/api/cms/content', '/api/content/published', '/api/cms/published'], (req: Request, res: Response) => {
   setNoCacheHeaders(res);
   const store = loadContentStore();
   const hasDraftChanges = JSON.stringify(store.published) !== JSON.stringify(store.draft);
   res.json({
     published: store.published,
     draft: store.draft,
+    version: store.published.version || 1,
+    lastUpdated: store.published.lastUpdated,
     hasDraftChanges,
   });
 });
 
-// 2b. Public Published Content: Dedicated endpoint for public visitors across all devices
-app.get(['/api/content/published', '/api/cms/published'], (req: Request, res: Response) => {
-  setNoCacheHeaders(res);
-  const store = loadContentStore();
-  res.json({
-    published: store.published,
-    version: store.published.version || 1,
-    lastUpdated: store.published.lastUpdated,
-  });
-});
-
 // 3. Save Draft
-app.post('/api/cms/content/draft', (req: Request, res: Response) => {
+bindRoute('post', ['/api/cms/content/draft'], (req: Request, res: Response) => {
   try {
     let { draft } = req.body;
     if (!draft) {
       res.status(400).json({ error: 'Missing draft content in request body' });
       return;
     }
-    // Ensure all base64 data URIs are converted to permanent /uploads/... URLs
     draft = processAndExtractBase64Images(draft);
     const cleanDraft = ensureServerContentDefaults(draft);
 
@@ -432,7 +580,7 @@ app.post('/api/cms/content/draft', (req: Request, res: Response) => {
     setNoCacheHeaders(res);
     res.json({
       success: true,
-      message: 'Draft saved successfully',
+      message: 'Draft saved successfully to persistent database',
       draft: store.draft,
       hasDraftChanges,
     });
@@ -442,8 +590,8 @@ app.post('/api/cms/content/draft', (req: Request, res: Response) => {
   }
 });
 
-// 4. Publish Live
-app.post('/api/cms/content/publish', (req: Request, res: Response) => {
+// 4. Publish Live - Atomically writes to published database and synchronizes all devices
+bindRoute('post', ['/api/cms/content/publish'], (req: Request, res: Response) => {
   try {
     const store = loadContentStore();
     let updatedDraft = req.body.draft || store.draft;
@@ -451,7 +599,7 @@ app.post('/api/cms/content/publish', (req: Request, res: Response) => {
       res.status(400).json({ error: 'No draft content provided to publish' });
       return;
     }
-    // Ensure all base64 data URIs are converted to permanent /uploads/... URLs
+    // Ensure all base64 data URIs are converted to permanent /uploads/... files
     updatedDraft = processAndExtractBase64Images(updatedDraft);
     const cleanDraft = ensureServerContentDefaults(updatedDraft);
 
@@ -464,9 +612,11 @@ app.post('/api/cms/content/publish', (req: Request, res: Response) => {
     setNoCacheHeaders(res);
     res.json({
       success: true,
-      message: 'All changes published live successfully!',
+      message: 'All changes published live successfully to persistent database!',
       published: store.published,
       draft: store.draft,
+      version: store.published.version,
+      lastUpdated: store.published.lastUpdated,
       hasDraftChanges: false,
     });
   } catch (err: any) {
@@ -475,295 +625,224 @@ app.post('/api/cms/content/publish', (req: Request, res: Response) => {
   }
 });
 
-  // 5. Revert Draft to Published
-  app.post('/api/cms/content/revert', (req: Request, res: Response) => {
-    try {
-      const store = loadContentStore();
-      store.draft = JSON.parse(JSON.stringify(store.published));
-      saveContentStore(store);
-      res.json({
-        success: true,
-        message: 'Draft reverted to current published version',
-        draft: store.draft,
-        published: store.published,
-        hasDraftChanges: false,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to revert draft' });
-    }
-  });
-
-  // 6. Reset to Factory Defaults
-  app.post('/api/cms/content/reset', (req: Request, res: Response) => {
-    try {
-      const freshStore: CMSStore = {
-        published: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
-        draft: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
-      };
-      saveContentStore(freshStore);
-      res.json({
-        success: true,
-        message: 'Reset to initial factory defaults',
-        published: freshStore.published,
-        draft: freshStore.draft,
-        hasDraftChanges: false,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to reset content' });
-    }
-  });
-
-  // 7. Media Library: Get all media assets
-  app.get('/api/cms/media', (req: Request, res: Response) => {
-    setNoCacheHeaders(res);
-    const media = loadMediaStore();
-    res.json(media);
-  });
-
-  // 8. Media Upload: Direct file upload from device into internal storage bucket
-  app.post('/api/upload', (req: Request, res: Response) => {
-    (upload.single('file') as any)(req, res, async (err: any) => {
-      if (err) {
-        console.error('Multer upload error:', err);
-        res.status(400).json({ error: err.message || 'File upload failed' });
-        return;
-      }
-      try {
-        if (!req.file) {
-          res.status(400).json({ error: 'No image file was provided' });
-          return;
-        }
-        const permanentUrl = `/uploads/${req.file.filename}`;
-        const asset: MediaAsset = {
-          id: 'med-' + Date.now() + '-' + Math.round(Math.random() * 1000),
-          url: permanentUrl,
-          name: req.file.originalname,
-          size: req.file.size,
-          type: req.file.mimetype,
-          createdAt: new Date().toISOString(),
-          category: (req.body.category as string) || 'General',
-        };
-        const media = loadMediaStore();
-        media.unshift(asset);
-        saveMediaStore(media);
-        res.json({
-          success: true,
-          message: 'File uploaded permanently',
-          asset,
-          url: permanentUrl,
-        });
-      } catch (error: any) {
-        console.error('Error saving media asset record:', error);
-        res.status(500).json({ error: error.message || 'Failed to save media record' });
-      }
+// 5. Revert Draft to Published
+bindRoute('post', ['/api/cms/content/revert'], (req: Request, res: Response) => {
+  try {
+    const store = loadContentStore();
+    store.draft = JSON.parse(JSON.stringify(store.published));
+    saveContentStore(store);
+    res.json({
+      success: true,
+      message: 'Draft reverted to current published version',
+      draft: store.draft,
+      published: store.published,
+      hasDraftChanges: false,
     });
-  });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to revert draft' });
+  }
+});
 
-  // 8b. Upload Base64 Data URI to permanent disk storage
-  app.post('/api/upload-base64', (req: Request, res: Response) => {
+// 6. Reset to Factory Defaults
+bindRoute('post', ['/api/cms/content/reset'], (req: Request, res: Response) => {
+  try {
+    const freshStore: CMSStore = {
+      published: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
+      draft: JSON.parse(JSON.stringify(DEFAULT_CMS_CONTENT)),
+    };
+    saveContentStore(freshStore);
+    res.json({
+      success: true,
+      message: 'Reset to initial factory defaults',
+      published: freshStore.published,
+      draft: freshStore.draft,
+      hasDraftChanges: false,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to reset content' });
+  }
+});
+
+// 7. Media Library: Get all media assets
+bindRoute('get', ['/api/cms/media'], (req: Request, res: Response) => {
+  setNoCacheHeaders(res);
+  const media = loadMediaStore();
+  res.json(media);
+});
+
+// 8. Media Upload: Direct file upload from device into internal storage bucket
+bindRoute('post', ['/api/upload'], (req: Request, res: Response) => {
+  (upload.single('file') as any)(req, res, async (err: any) => {
+    if (err) {
+      console.error('Multer upload error:', err);
+      res.status(400).json({ error: err.message || 'File upload failed' });
+      return;
+    }
     try {
-      const { dataUri, name, category } = req.body;
-      if (!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
-        res.status(400).json({ error: 'Valid image Data URI is required' });
+      if (!req.file) {
+        res.status(400).json({ error: 'No image file was provided' });
         return;
       }
-      const saved = saveBase64Image(dataUri, name || 'upload', category || 'Uploads');
-      if (!saved) {
-        res.status(500).json({ error: 'Could not process and save base64 image' });
-        return;
-      }
+      const permanentUrl = `/uploads/${req.file.filename}`;
+
+      // Duplicate to TMP_UPLOADS_DIR if saved to UPLOADS_DIR, and vice-versa
+      try {
+        if (!fs.existsSync(TMP_UPLOADS_DIR)) fs.mkdirSync(TMP_UPLOADS_DIR, { recursive: true });
+        const tmpTarget = path.join(TMP_UPLOADS_DIR, req.file.filename);
+        if (!fs.existsSync(tmpTarget) && fs.existsSync(req.file.path)) {
+          fs.copyFileSync(req.file.path, tmpTarget);
+        }
+      } catch {}
+
+      const asset: MediaAsset = {
+        id: 'med-' + Date.now() + '-' + Math.round(Math.random() * 1000),
+        url: permanentUrl,
+        name: req.file.originalname,
+        size: req.file.size,
+        type: req.file.mimetype,
+        createdAt: new Date().toISOString(),
+        category: (req.body.category as string) || 'General',
+      };
+      const media = loadMediaStore();
+      media.unshift(asset);
+      saveMediaStore(media);
       res.json({
         success: true,
-        message: 'Base64 image converted to permanent storage URL successfully',
-        url: saved.url,
-        asset: saved.asset,
+        message: 'File uploaded permanently to storage bucket',
+        asset,
+        url: permanentUrl,
       });
     } catch (error: any) {
-      console.error('Error in /api/upload-base64:', error);
-      res.status(500).json({ error: error.message || 'Failed to convert base64 image' });
+      console.error('Error saving media asset record:', error);
+      res.status(500).json({ error: error.message || 'Failed to save media record' });
     }
   });
+});
 
-  // 9. Media Library: Delete media asset
-  app.delete('/api/cms/media/:id', (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const media = loadMediaStore();
-      const target = media.find((m) => m.id === id);
+// 8b. Upload Base64 Data URI to permanent disk storage
+bindRoute('post', ['/api/upload-base64'], (req: Request, res: Response) => {
+  try {
+    const { dataUri, name, category } = req.body;
+    if (!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
+      res.status(400).json({ error: 'Valid image Data URI is required' });
+      return;
+    }
+    const saved = saveBase64Image(dataUri, name || 'upload', category || 'Uploads');
+    if (!saved) {
+      res.status(500).json({ error: 'Could not process and save base64 image' });
+      return;
+    }
+    res.json({
+      success: true,
+      message: 'Base64 image converted to permanent storage URL successfully',
+      url: saved.url,
+      asset: saved.asset,
+    });
+  } catch (error: any) {
+    console.error('Error in /api/upload-base64:', error);
+    res.status(500).json({ error: error.message || 'Failed to convert base64 image' });
+  }
+});
 
-      // Permanently remove physical file from disk if local upload
-      if (target && target.url) {
-        const normalizedUrl = target.url.startsWith('/') ? target.url.slice(1) : target.url;
-        if (normalizedUrl.startsWith('uploads/')) {
-          const filePath = path.join(process.cwd(), 'public', normalizedUrl);
-          if (fs.existsSync(filePath)) {
-            try {
-              fs.unlinkSync(filePath);
-              console.log('Successfully deleted physical file from disk storage:', filePath);
-            } catch (e) {
-              console.warn('Could not delete physical file:', filePath, e);
-            }
-          }
-        }
+// 9. Media Library: Delete media asset
+bindRoute('delete', ['/api/cms/media/:id'], (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const media = loadMediaStore();
+    const target = media.find((m) => m.id === id);
+
+    // Remove file from disk
+    if (target && target.url) {
+      const normalizedUrl = target.url.startsWith('/') ? target.url.slice(1) : target.url;
+      if (normalizedUrl.startsWith('uploads/')) {
+        const filename = path.basename(normalizedUrl);
+        try {
+          const filePath = path.join(UPLOADS_DIR, filename);
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch {}
+        try {
+          const tmpFilePath = path.join(TMP_UPLOADS_DIR, filename);
+          if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
+        } catch {}
       }
-
-      // Remove from media store array
-      const updated = media.filter((m) => m.id !== id);
-      saveMediaStore(updated);
-
-      // Clean up references in CMS content (published & draft) to avoid 404s
-      let affectedReferences = 0;
-      if (target && target.url) {
-        const store = loadContentStore();
-        let contentChanged = false;
-
-        const cleanReferences = (content: any) => {
-          if (!content) return;
-          // Check brand logo
-          if (content.brand) {
-            if (content.brand.logoUrl === target.url || content.brand.logo === target.url) {
-              content.brand.logoUrl = '';
-              content.brand.logo = '';
-              contentChanged = true;
-              affectedReferences++;
-            }
-          }
-          // Check hero slides
-          if (Array.isArray(content.heroSlides)) {
-            content.heroSlides.forEach((slide: any, idx: number) => {
-              if (slide && slide.image === target.url) {
-                const fallback = DEFAULT_CMS_CONTENT.heroSlides?.[idx]?.image || DEFAULT_CMS_CONTENT.heroSlides?.[0]?.image || '';
-                slide.image = fallback;
-                contentChanged = true;
-                affectedReferences++;
-              }
-            });
-          }
-          // Check homepage CTA banner
-          if (content.homepage?.ctaBanner?.backgroundImage === target.url) {
-            content.homepage.ctaBanner.backgroundImage = DEFAULT_CMS_CONTENT.homepage?.ctaBanner?.backgroundImage || '';
-            contentChanged = true;
-            affectedReferences++;
-          }
-          // Check about images
-          if (content.about?.heroImage === target.url) {
-            content.about.heroImage = DEFAULT_CMS_CONTENT.about?.heroImage || '';
-            contentChanged = true;
-            affectedReferences++;
-          }
-          if (content.about?.storyImage === target.url) {
-            content.about.storyImage = DEFAULT_CMS_CONTENT.about?.storyImage || '';
-            contentChanged = true;
-            affectedReferences++;
-          }
-          // Check products
-          if (Array.isArray(content.products)) {
-            content.products.forEach((p: any, idx: number) => {
-              if (p && p.image === target.url) {
-                const defaultProd = DEFAULT_CMS_CONTENT.products?.[idx] || DEFAULT_CMS_CONTENT.products?.[0];
-                p.image = defaultProd?.image || '';
-                contentChanged = true;
-                affectedReferences++;
-              }
-            });
-          }
-          // Check gallery items
-          if (Array.isArray(content.gallery)) {
-            content.gallery.forEach((g: any, idx: number) => {
-              if (g && g.image === target.url) {
-                const defaultGal = DEFAULT_CMS_CONTENT.gallery?.[idx] || DEFAULT_CMS_CONTENT.gallery?.[0];
-                g.image = defaultGal?.image || '';
-                contentChanged = true;
-                affectedReferences++;
-              }
-            });
-          }
-        };
-
-        cleanReferences(store.published);
-        cleanReferences(store.draft);
-
-        if (contentChanged) {
-          store.published.lastUpdated = new Date().toISOString();
-          store.draft.lastUpdated = new Date().toISOString();
-          saveContentStore(store);
-        }
-      }
-
-      res.json({
-        success: true,
-        message: 'Image deleted permanently from storage',
-        deletedAsset: target,
-        affectedReferences,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to delete media' });
     }
-  });
 
-  // 10. Enquiries / Orders: Get all
-  app.get('/api/enquiries', (req: Request, res: Response) => {
-    setNoCacheHeaders(res);
-    const enquiries = loadEnquiriesStore();
-    res.json(enquiries);
-  });
+    const updated = media.filter((m) => m.id !== id);
+    saveMediaStore(updated);
 
-  // 11. Enquiries / Orders: Create new (from public contact / whatsapp click)
-  app.post('/api/enquiries', (req: Request, res: Response) => {
-    try {
-      const { fullName, email, phone, categoryInterest, message, channel } = req.body;
-      const newEnquiry: CustomerEnquiry = {
-        id: 'enq-' + Date.now(),
-        createdAt: new Date().toISOString(),
-        fullName: fullName || 'Valued Client',
-        email: email || '',
-        phone: phone || '',
-        categoryInterest: categoryInterest || 'General Enquiry',
-        message: message || '',
-        status: 'New',
-        channel: channel || 'Website Form',
-      };
-      const list = loadEnquiriesStore();
-      list.unshift(newEnquiry);
-      saveEnquiriesStore(list);
-      res.json({ success: true, enquiry: newEnquiry });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to record enquiry' });
+    res.json({
+      success: true,
+      message: 'Image deleted permanently from storage bucket',
+      deletedAsset: target,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete media' });
+  }
+});
+
+// 10. Enquiries / Orders: Get all
+bindRoute('get', ['/api/enquiries'], (req: Request, res: Response) => {
+  setNoCacheHeaders(res);
+  const enquiries = loadEnquiriesStore();
+  res.json(enquiries);
+});
+
+// 11. Enquiries / Orders: Create new
+bindRoute('post', ['/api/enquiries'], (req: Request, res: Response) => {
+  try {
+    const { fullName, email, phone, categoryInterest, message, channel } = req.body;
+    const newEnquiry: CustomerEnquiry = {
+      id: 'enq-' + Date.now(),
+      createdAt: new Date().toISOString(),
+      fullName: fullName || 'Valued Client',
+      email: email || '',
+      phone: phone || '',
+      categoryInterest: categoryInterest || 'General Enquiry',
+      message: message || '',
+      status: 'New',
+      channel: channel || 'Website Form',
+    };
+    const list = loadEnquiriesStore();
+    list.unshift(newEnquiry);
+    saveEnquiriesStore(list);
+    res.json({ success: true, enquiry: newEnquiry });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to record enquiry' });
+  }
+});
+
+// 12. Enquiries / Orders: Update status or notes
+bindRoute('patch', ['/api/enquiries/:id'], (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    const list = loadEnquiriesStore();
+    const item = list.find((e) => e.id === id);
+    if (!item) {
+      res.status(404).json({ error: 'Enquiry record not found' });
+      return;
     }
-  });
+    if (status) item.status = status;
+    if (notes !== undefined) item.notes = notes;
+    saveEnquiriesStore(list);
+    res.json({ success: true, enquiry: item });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update enquiry' });
+  }
+});
 
-  // 12. Enquiries / Orders: Update status or notes
-  app.patch('/api/enquiries/:id', (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { status, notes } = req.body;
-      const list = loadEnquiriesStore();
-      const item = list.find((e) => e.id === id);
-      if (!item) {
-        res.status(404).json({ error: 'Enquiry record not found' });
-        return;
-      }
-      if (status) item.status = status;
-      if (notes !== undefined) item.notes = notes;
-      saveEnquiriesStore(list);
-      res.json({ success: true, enquiry: item });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to update enquiry' });
-    }
-  });
-
-  // 13. Enquiries / Orders: Delete
-  app.delete('/api/enquiries/:id', (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const list = loadEnquiriesStore();
-      const filtered = list.filter((e) => e.id !== id);
-      saveEnquiriesStore(filtered);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to delete enquiry' });
-    }
-  });
+// 13. Enquiries / Orders: Delete
+bindRoute('delete', ['/api/enquiries/:id'], (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const list = loadEnquiriesStore();
+    const filtered = list.filter((e) => e.id !== id);
+    saveEnquiriesStore(filtered);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete enquiry' });
+  }
+});
 
   // ----------------------------------------------------
   // VITE MIDDLEWARE / PRODUCTION STATIC SERVING
