@@ -1,10 +1,10 @@
 {
   "published": {
-    "version": 3,
-    "lastUpdated": "2026-09-27T17:54:37.154Z",
+    "version": 4,
+    "lastUpdated": "2026-09-27T18:07:06.303Z",
     "brand": {
       "businessName": "TEST-VALUE-12345",
-      "tagline": "Testing Publish 500 Error",
+      "tagline": "Testing Publish Fix",
       "description": "",
       "logoUrl": "/logo.png",
       "logo": "/logo.png",
@@ -483,11 +483,11 @@
     }
   },
   "draft": {
-    "version": 3,
-    "lastUpdated": "2026-09-27T17:54:37.154Z",
+    "version": 4,
+    "lastUpdated": "2026-09-27T18:07:06.303Z",
     "brand": {
       "businessName": "TEST-VALUE-12345",
-      "tagline": "Testing Publish 500 Error",
+      "tagline": "Testing Publish Fix",
       "description": "",
       "logoUrl": "/logo.png",
       "logo": "/logo.png",

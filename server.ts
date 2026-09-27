@@ -740,8 +740,11 @@ bindRoute('post', ['/api/cms/content/publish', '/api/content/publish', '/publish
     }
 
     const store = loadContentStore();
-    let incomingDraft = payload?.draft || (payload?.brand ? payload : store.draft);
-    console.log('[API Publish] Incoming draft parsed, version:', incomingDraft?.version);
+    let incomingDraft = payload?.draft || (payload?.brand ? payload : null);
+    if (!incomingDraft || typeof incomingDraft !== 'object' || Object.keys(incomingDraft).length === 0) {
+      incomingDraft = store.draft;
+    }
+    console.log('[API Publish] Using draft for publish, version:', incomingDraft?.version);
 
     // Sanitize any embedded base64 safely
     try {
